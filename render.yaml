@@ -1,10 +1,9 @@
 services:
   - type: web
-    name: ability-tree-share
+    name: tree
     runtime: static
-    repo: https://github.com/lastxuan4396/FEI-.git
+    repo: https://github.com/lastxuan4396/TREE.git
     branch: main
-    rootDir: ability-tree-share
     autoDeploy: true
     buildCommand: "echo 'No build step for static HTML'"
     staticPublishPath: .

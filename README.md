@@ -7,7 +7,7 @@
 直接打开 `index.html` 即可，或启动本地静态服务：
 
 ```bash
-cd ability-tree-share
+cd TREE
 python3 -m http.server 8080
 ```
 
@@ -15,8 +15,8 @@ python3 -m http.server 8080
 
 ## Render 部署（推荐）
 
-1. 将当前仓库推送到 GitHub（已配置为 `lastxuan4396/FEI-`）。
-2. 在 Render 新建 Blueprint，选择该仓库，并指定 Blueprint 文件为 `ability-tree-share/render.yaml`。
+1. 将当前仓库推送到 GitHub（仓库名：`TREE`）。
+2. 在 Render 新建 Blueprint，选择该仓库，并指定 Blueprint 文件为 `render.yaml`。
 3. Render 会读取 `render.yaml` 并创建 Static Web Service。
 4. 部署完成后会得到公网 URL，可直接分享。
 
