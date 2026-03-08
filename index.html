@@ -11,6 +11,8 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#0f766e" />
   </head>
   <body>
     <div class="app">
@@ -25,6 +27,7 @@
           <span class="stat-pill">今日 XP <strong id="statTodayXp">0</strong></span>
           <span class="stat-pill">本周 XP <strong id="statWeekXp">0</strong></span>
         </div>
+        <button id="installAppBtn" class="btn-plain" hidden>安装到桌面</button>
       </header>
 
       <main class="shell">
@@ -34,7 +37,7 @@
             <p class="panel-note">父节点达到 Lv2 自动解锁子节点。每天同任务只计分一次。</p>
           </div>
           <div class="tree-wrap">
-            <div id="treeGrid" class="tree-grid">
+            <div id="treeGrid" class="tree-grid" role="list">
               <svg id="treeLines" aria-hidden="true"></svg>
             </div>
           </div>
@@ -48,6 +51,7 @@
             </div>
             <p id="dailyTaskTitle" class="task-title big">-</p>
             <p id="dailyTaskHint" class="panel-note">-</p>
+            <p id="dailyTaskReason" class="panel-note">-</p>
             <div class="small-actions">
               <button id="completeDailyBtn" class="btn-main">完成今日任务</button>
               <button id="focusNodeBtn" class="btn-plain">定位到节点</button>
@@ -59,10 +63,11 @@
                 每日提醒
               </label>
               <input id="reminderTime" type="time" value="20:30" />
+              <button id="enablePushBtn" class="btn-plain">启用推送</button>
               <button id="testReminderBtn" class="btn-plain">测试提醒</button>
               <button id="addCalendarBtn" class="btn-plain">添加到日历</button>
             </div>
-            <p class="panel-note">可生成每天重复提醒到系统日历，关掉网页也会提醒。</p>
+            <p class="panel-note">支持 Web Push + 日历提醒（网页关闭也可收到）。</p>
           </section>
 
           <section class="panel">
@@ -83,6 +88,13 @@
               <a id="downloadShareBtn" class="btn-link disabled" download="weekly-report.png">下载分享图</a>
             </div>
             <img id="sharePreview" class="share-preview" alt="周报分享预览" hidden />
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">成长可视化</h3>
+            <div id="heatmap" class="heatmap-grid" aria-label="30天热力图"></div>
+            <canvas id="nodeGrowthChart" width="900" height="280" class="growth-chart" aria-label="节点成长曲线"></canvas>
+            <ul id="recoveryList" class="report-list"></ul>
           </section>
 
           <section class="panel">
@@ -141,6 +153,22 @@
           </section>
 
           <section class="panel">
+            <h3 class="mini-title">同步中心（无 Token）</h3>
+            <div class="form-grid">
+              <label class="full">
+                同步口令（跨设备保持一致）
+                <input id="syncCodeInput" type="text" placeholder="例如：my-tree-sync-2026" />
+              </label>
+            </div>
+            <div class="small-actions">
+              <button id="generateSyncCodeBtn" class="btn-plain">生成口令</button>
+              <button id="cloudUploadBtn" class="btn-sub">上传到云端</button>
+              <button id="cloudDownloadBtn" class="btn-plain">从云端恢复</button>
+            </div>
+            <p class="panel-note">使用你自己的同步口令，不需要 GitHub Token。</p>
+          </section>
+
+          <section class="panel">
             <h3 class="mini-title">数据迁移</h3>
             <div class="small-actions">
               <button id="exportDataBtn" class="btn-plain">导出 JSON</button>
@@ -152,30 +180,7 @@
           </section>
 
           <section class="panel">
-            <h3 class="mini-title">云同步（GitHub Gist）</h3>
-            <div class="form-grid">
-              <label class="full">
-                GitHub Token（需要 `gist` 权限）
-                <input id="cloudTokenInput" type="password" placeholder="ghp_xxx / gho_xxx" />
-              </label>
-              <label class="full">
-                Gist ID（首次可留空，上传后自动生成）
-                <input id="cloudGistIdInput" type="text" placeholder="例如：d9f9c...（32位）" />
-              </label>
-            </div>
-            <label class="inline-check">
-              <input id="rememberTokenToggle" type="checkbox" />
-              记住 Token（仅保存在当前浏览器）
-            </label>
-            <div class="small-actions">
-              <button id="cloudUploadBtn" class="btn-sub">上传到云端</button>
-              <button id="cloudDownloadBtn" class="btn-plain">从云端恢复</button>
-            </div>
-            <p class="panel-note">不同设备填写同一 Token + Gist ID 即可同步。</p>
-          </section>
-
-          <section class="panel">
-            <h3 class="mini-title">基础数据看板</h3>
+            <h3 class="mini-title">增长看板（分层）</h3>
             <ul id="analyticsList" class="report-list"></ul>
           </section>
 

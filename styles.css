@@ -74,6 +74,10 @@ p {
   gap: 8px;
 }
 
+#installAppBtn {
+  align-self: flex-start;
+}
+
 .stat-pill {
   display: inline-flex;
   align-items: center;
@@ -365,7 +369,7 @@ hr {
 
 .reminder-row {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto;
   gap: 8px;
   align-items: center;
   font-size: 13px;
@@ -448,6 +452,48 @@ textarea {
 .mini-title {
   font-size: 15px;
   margin-bottom: 8px;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(20px, 1fr));
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.heatmap-day {
+  border-radius: 5px;
+  height: 20px;
+  border: 1px solid rgba(31, 47, 52, 0.12);
+}
+
+.heatmap-day.lv0 {
+  background: #edf2f2;
+}
+
+.heatmap-day.lv1 {
+  background: #d0f0e7;
+}
+
+.heatmap-day.lv2 {
+  background: #9addc9;
+}
+
+.heatmap-day.lv3 {
+  background: #57b9a5;
+}
+
+.heatmap-day.lv4 {
+  background: #2f8d7e;
+}
+
+.growth-chart {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  margin-bottom: 10px;
 }
 
 .share-preview {
@@ -590,5 +636,9 @@ textarea {
 
   .reminder-row {
     grid-template-columns: 1fr;
+  }
+
+  .heatmap-grid {
+    grid-template-columns: repeat(7, minmax(20px, 1fr));
   }
 }

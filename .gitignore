@@ -1,0 +1,4 @@
+node_modules/
+.tree-data/
+*.log
+.DS_Store

@@ -12,15 +12,17 @@ import {
   updateStreak,
 } from './core.js';
 
-const STORAGE_KEY = 'ability-tree-upgrade-v2';
-const REMEMBERED_TOKEN_KEY = 'tree-cloud-token-v1';
-const MAX_TASK_LOGS = 800;
-const MAX_REFLECTIONS = 80;
-const MAX_EVENTS = 600;
-const MAX_VISITS = 120;
-const MIN_TASK_INTERVAL_MS = 4000;
-const MAX_TASKS_PER_MINUTE = 6;
-const MAX_TASKS_PER_DAY = 40;
+const STORAGE_KEY = 'ability-tree-upgrade-v4';
+const MAX_TASK_LOGS = 900;
+const MAX_REFLECTIONS = 100;
+const MAX_EVENTS = 800;
+const MAX_VISITS = 140;
+
+const ANTI_CHEAT_CONFIG = {
+  minTaskIntervalMs: 4000,
+  maxTasksPerMinute: 6,
+  maxTasksPerDay: 40,
+};
 
 const difficultyMap = {
   easy: { label: '简单', xp: 10, className: 'easy' },
@@ -46,6 +48,7 @@ const refs = {
   toast: document.getElementById('toast'),
   dailyTaskTitle: document.getElementById('dailyTaskTitle'),
   dailyTaskHint: document.getElementById('dailyTaskHint'),
+  dailyTaskReason: document.getElementById('dailyTaskReason'),
   dailyCardState: document.getElementById('dailyCardState'),
   completeDailyBtn: document.getElementById('completeDailyBtn'),
   focusNodeBtn: document.getElementById('focusNodeBtn'),
@@ -53,9 +56,13 @@ const refs = {
   reminderTime: document.getElementById('reminderTime'),
   testReminderBtn: document.getElementById('testReminderBtn'),
   addCalendarBtn: document.getElementById('addCalendarBtn'),
+  enablePushBtn: document.getElementById('enablePushBtn'),
   generateShareBtn: document.getElementById('generateShareBtn'),
   downloadShareBtn: document.getElementById('downloadShareBtn'),
   sharePreview: document.getElementById('sharePreview'),
+  heatmap: document.getElementById('heatmap'),
+  nodeGrowthChart: document.getElementById('nodeGrowthChart'),
+  recoveryList: document.getElementById('recoveryList'),
   newNodeName: document.getElementById('newNodeName'),
   newNodeParent: document.getElementById('newNodeParent'),
   newNodeDesc: document.getElementById('newNodeDesc'),
@@ -64,19 +71,22 @@ const refs = {
   newTaskDifficulty: document.getElementById('newTaskDifficulty'),
   newTaskTitle: document.getElementById('newTaskTitle'),
   addTaskBtn: document.getElementById('addTaskBtn'),
+  syncCodeInput: document.getElementById('syncCodeInput'),
+  generateSyncCodeBtn: document.getElementById('generateSyncCodeBtn'),
+  cloudUploadBtn: document.getElementById('cloudUploadBtn'),
+  cloudDownloadBtn: document.getElementById('cloudDownloadBtn'),
   exportDataBtn: document.getElementById('exportDataBtn'),
   importDataBtn: document.getElementById('importDataBtn'),
   importFileInput: document.getElementById('importFileInput'),
-  cloudTokenInput: document.getElementById('cloudTokenInput'),
-  cloudGistIdInput: document.getElementById('cloudGistIdInput'),
-  rememberTokenToggle: document.getElementById('rememberTokenToggle'),
-  cloudUploadBtn: document.getElementById('cloudUploadBtn'),
-  cloudDownloadBtn: document.getElementById('cloudDownloadBtn'),
   analyticsList: document.getElementById('analyticsList'),
   onboardingModal: document.getElementById('onboardingModal'),
   startOnboardingBtn: document.getElementById('startOnboardingBtn'),
   skipOnboardingBtn: document.getElementById('skipOnboardingBtn'),
+  installAppBtn: document.getElementById('installAppBtn'),
 };
+
+let deferredInstallPrompt = null;
+let swRegistration = null;
 
 let state = loadState();
 registerPageOpen();
@@ -85,9 +95,11 @@ ensureSelectedNode();
 saveState();
 
 bindEvents();
+initPwa();
 renderAll();
-checkReminder();
-setInterval(() => checkReminder(), 60 * 1000);
+checkReminderFallback();
+setInterval(() => checkReminderFallback(), 60 * 1000);
+
 if (!state.meta.seenOnboarding) {
   trackEvent('onboarding_start');
   refs.onboardingModal.classList.remove('hidden');
@@ -140,7 +152,7 @@ function createInitialState() {
   }
 
   return {
-    version: 3,
+    version: 4,
     selectedNodeId: nodes[0].id,
     totalXp: 0,
     streak: 0,
@@ -158,7 +170,9 @@ function createInitialState() {
       reminderEnabled: false,
       reminderTime: '20:30',
       lastReminderDate: '',
-      cloudGistId: '',
+      syncCode: '',
+      pushEnabled: false,
+      lastPushSyncAt: '',
     },
     analytics: {
       events: [],
@@ -170,8 +184,7 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialState();
-    const parsed = JSON.parse(raw);
-    return mergeState(parsed);
+    return mergeState(JSON.parse(raw));
   } catch {
     return createInitialState();
   }
@@ -214,13 +227,17 @@ function mergeState(source) {
     base.meta = {
       ...base.meta,
       firstVisitDate: typeof source.meta.firstVisitDate === 'string' ? source.meta.firstVisitDate : base.meta.firstVisitDate,
-      visits: Array.isArray(source.meta.visits) ? source.meta.visits.filter((v) => typeof v === 'string').slice(0, MAX_VISITS) : base.meta.visits,
+      visits: Array.isArray(source.meta.visits)
+        ? source.meta.visits.filter((v) => typeof v === 'string').slice(0, MAX_VISITS)
+        : base.meta.visits,
       seenOnboarding: Boolean(source.meta.seenOnboarding),
       firstTaskCompleted: Boolean(source.meta.firstTaskCompleted),
       reminderEnabled: Boolean(source.meta.reminderEnabled),
       reminderTime: typeof source.meta.reminderTime === 'string' ? source.meta.reminderTime : base.meta.reminderTime,
       lastReminderDate: typeof source.meta.lastReminderDate === 'string' ? source.meta.lastReminderDate : '',
-      cloudGistId: typeof source.meta.cloudGistId === 'string' ? source.meta.cloudGistId : '',
+      syncCode: typeof source.meta.syncCode === 'string' ? source.meta.syncCode.slice(0, 60) : '',
+      pushEnabled: Boolean(source.meta.pushEnabled),
+      lastPushSyncAt: typeof source.meta.lastPushSyncAt === 'string' ? source.meta.lastPushSyncAt : '',
     };
   }
 
@@ -242,17 +259,15 @@ function mergeState(source) {
       };
     }
     base.nodeProgress = merged;
-  } else {
-    const generated = {};
-    for (const node of base.nodes) {
-      generated[node.id] = { level: 1, xp: 0, unlocked: !node.parentId };
-    }
-    base.nodeProgress = generated;
   }
 
   base.nodeProgress = syncUnlockState(base.nodes, base.nodeProgress);
   ensureTaskNodes(base);
   return base;
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 function sanitizeNode(node) {
@@ -261,8 +276,8 @@ function sanitizeNode(node) {
     name: String(node.name).slice(0, 18),
     desc: String(node.desc || '').slice(0, 50),
     parentId: node.parentId ? String(node.parentId) : null,
-    row: clampInt(node.row, 1, 16),
-    col: clampInt(node.col, 1, 3),
+    row: clampInt(node.row, 1, 20),
+    col: clampInt(node.col, 1, 12),
     custom: Boolean(node.custom),
   };
 }
@@ -282,7 +297,7 @@ function ensureTaskNodes(localState) {
   const ids = new Set(localState.nodes.map((node) => node.id));
   localState.tasks = localState.tasks.filter((task) => ids.has(task.nodeId));
   if (!ids.has(localState.selectedNodeId)) {
-    localState.selectedNodeId = localState.nodes[0] ? localState.nodes[0].id : '';
+    localState.selectedNodeId = localState.nodes[0]?.id || '';
   }
 }
 
@@ -292,24 +307,14 @@ function ensureSelectedNode() {
   state.selectedNodeId = unlocked ? unlocked.id : state.nodes[0]?.id || '';
 }
 
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
 function registerPageOpen() {
   const today = getDateKey();
-  if (!state.meta.firstVisitDate) {
-    state.meta.firstVisitDate = today;
-  }
-
-  const visits = [today, ...state.meta.visits.filter((d) => d !== today)].slice(0, MAX_VISITS);
-  state.meta.visits = visits;
+  if (!state.meta.firstVisitDate) state.meta.firstVisitDate = today;
+  state.meta.visits = [today, ...state.meta.visits.filter((d) => d !== today)].slice(0, MAX_VISITS);
   trackEvent('page_open');
 }
 
 function bindEvents() {
-  hydrateCloudInputs();
-
   refs.saveReflectionBtn.addEventListener('click', saveReflection);
   refs.clearDataBtn.addEventListener('click', clearData);
   refs.completeDailyBtn.addEventListener('click', () => {
@@ -318,9 +323,7 @@ function bindEvents() {
   });
   refs.focusNodeBtn.addEventListener('click', () => {
     const nodeId = refs.focusNodeBtn.dataset.nodeId;
-    if (nodeId) {
-      setSelectedNode(nodeId);
-    }
+    if (nodeId) setSelectedNode(nodeId);
   });
 
   refs.reminderToggle.addEventListener('change', async () => {
@@ -328,23 +331,32 @@ function bindEvents() {
       const ok = await ensureNotificationPermission();
       if (!ok) {
         refs.reminderToggle.checked = false;
-        showToast('浏览器未授权通知，仅保留站内提醒。');
+        showToast('通知权限未开启，已退回仅站内提示。');
       }
     }
     state.meta.reminderEnabled = refs.reminderToggle.checked;
     trackEvent(state.meta.reminderEnabled ? 'reminder_enabled' : 'reminder_disabled');
     saveState();
+    await syncReminderToServer();
   });
 
-  refs.reminderTime.addEventListener('change', () => {
+  refs.reminderTime.addEventListener('change', async () => {
     state.meta.reminderTime = refs.reminderTime.value || '20:30';
+    saveState();
+    await syncReminderToServer();
+  });
+
+  refs.enablePushBtn.addEventListener('click', async () => {
+    await enablePushNotifications();
+  });
+
+  refs.testReminderBtn.addEventListener('click', async () => {
+    sendReminder('这是一次测试提醒：今天先完成一个最小动作。');
+    await triggerServerPushTest('这是来自 TREE 的推送测试。');
+    trackEvent('reminder_test');
     saveState();
   });
 
-  refs.testReminderBtn.addEventListener('click', () => {
-    sendReminder('这是一次测试提醒：今天先完成一个最小动作。');
-    trackEvent('reminder_test');
-  });
   refs.addCalendarBtn.addEventListener('click', downloadReminderICS);
 
   refs.generateShareBtn.addEventListener('click', async () => {
@@ -354,25 +366,23 @@ function bindEvents() {
   refs.addNodeBtn.addEventListener('click', addCustomNode);
   refs.addTaskBtn.addEventListener('click', addCustomTask);
 
+  refs.syncCodeInput.addEventListener('change', () => {
+    state.meta.syncCode = refs.syncCodeInput.value.trim().slice(0, 60);
+    saveState();
+  });
+  refs.generateSyncCodeBtn.addEventListener('click', generateSyncCode);
+  refs.cloudUploadBtn.addEventListener('click', uploadCloudBackup);
+  refs.cloudDownloadBtn.addEventListener('click', downloadCloudBackup);
+
   refs.exportDataBtn.addEventListener('click', exportData);
   refs.importDataBtn.addEventListener('click', () => refs.importFileInput.click());
   refs.importFileInput.addEventListener('change', importData);
-  refs.cloudUploadBtn.addEventListener('click', uploadCloudBackup);
-  refs.cloudDownloadBtn.addEventListener('click', downloadCloudBackup);
-  refs.rememberTokenToggle.addEventListener('change', syncRememberedTokenState);
-  refs.cloudTokenInput.addEventListener('blur', syncRememberedTokenState);
-  refs.cloudGistIdInput.addEventListener('change', () => {
-    state.meta.cloudGistId = refs.cloudGistIdInput.value.trim();
-    saveState();
-  });
 
   refs.startOnboardingBtn.addEventListener('click', () => {
     state.meta.seenOnboarding = true;
     refs.onboardingModal.classList.add('hidden');
-    const daily = getDailyTask();
-    if (daily?.task) {
-      setSelectedNode(daily.task.nodeId);
-    }
+    const daily = getDailyTaskRecommendation();
+    if (daily?.task) setSelectedNode(daily.task.nodeId);
     trackEvent('onboarding_finish');
     saveState();
     showToast('先完成今日任务，30 秒就能看到进步。');
@@ -394,7 +404,38 @@ function bindEvents() {
     }
   });
 
-  window.addEventListener('resize', debounce(drawTreeLines, 120));
+  window.addEventListener('resize', debounce(() => {
+    renderGrowthChart();
+    drawTreeLines();
+  }, 120));
+}
+
+async function initPwa() {
+  if ('serviceWorker' in navigator) {
+    try {
+      swRegistration = await navigator.serviceWorker.register('/service-worker.js');
+    } catch {
+      swRegistration = null;
+    }
+  }
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    refs.installAppBtn.hidden = false;
+  });
+
+  refs.installAppBtn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    refs.installAppBtn.hidden = true;
+  });
+
+  if (state.meta.pushEnabled && state.meta.syncCode) {
+    await syncReminderToServer();
+  }
 }
 
 function setSelectedNode(nodeId) {
@@ -427,20 +468,14 @@ function completeTask(taskId, source = 'task_list') {
   }
 
   const today = getDateKey();
-  const done = state.taskLogs.some(
-    (log) => log.kind === 'task' && log.taskId === taskId && log.date === today,
-  );
+  const done = state.taskLogs.some((log) => log.kind === 'task' && log.taskId === taskId && log.date === today);
   if (done) {
     showToast('这个任务今天已经完成过了。');
     return;
   }
 
   const nowIso = new Date().toISOString();
-  const anomaly = detectCompletionAnomaly(state.taskLogs, nowIso, today, {
-    minTaskIntervalMs: MIN_TASK_INTERVAL_MS,
-    maxTasksPerMinute: MAX_TASKS_PER_MINUTE,
-    maxTasksPerDay: MAX_TASKS_PER_DAY,
-  });
+  const anomaly = detectCompletionAnomaly(state.taskLogs, nowIso, today, ANTI_CHEAT_CONFIG);
   if (anomaly.blocked) {
     trackEvent('suspicious_block', { reason: anomaly.reason, source });
     saveState();
@@ -475,6 +510,7 @@ function completeTask(taskId, source = 'task_list') {
       nodeId: task.nodeId,
       xp: streak.bonus,
       title: '连续 7 天奖励',
+      completedAt: nowIso,
     });
     trackEvent('streak_bonus', { bonus: streak.bonus });
   }
@@ -488,6 +524,7 @@ function completeTask(taskId, source = 'task_list') {
   if (levelUps > 0) {
     trackEvent('level_up', { nodeId: task.nodeId, count: levelUps });
   }
+
   saveState();
   renderAll();
 
@@ -509,6 +546,7 @@ function saveReflection() {
   trackEvent('save_reflection');
   saveState();
   renderReflections();
+  renderAll();
   showToast('复盘已保存。');
 }
 
@@ -526,28 +564,66 @@ function clearData() {
   showToast('已恢复到初始状态。');
 }
 
-function getDailyTask() {
+function getDailyTaskRecommendation() {
   const today = getDateKey();
-  const unlockedNodeIds = new Set(
-    state.nodes.filter((node) => state.nodeProgress[node.id]?.unlocked).map((node) => node.id),
-  );
+  const unlockedNodeIds = new Set(state.nodes.filter((node) => state.nodeProgress[node.id]?.unlocked).map((node) => node.id));
 
   const available = state.tasks.filter((task) => {
     if (!unlockedNodeIds.has(task.nodeId)) return false;
-    const done = state.taskLogs.some(
-      (log) => log.kind === 'task' && log.taskId === task.id && log.date === today,
-    );
-    return !done;
+    return !state.taskLogs.some((log) => log.kind === 'task' && log.taskId === task.id && log.date === today);
   });
 
-  if (available.length > 0) {
-    const idx = hashString(today) % available.length;
-    return { task: available[idx], doneToday: false };
+  if (!available.length) {
+    const fallback = state.tasks.find((task) => unlockedNodeIds.has(task.nodeId));
+    return { task: fallback || null, doneToday: true, reason: '今日任务已清空，做一次复盘巩固。' };
   }
 
-  const fallback = state.tasks.find((task) => unlockedNodeIds.has(task.nodeId));
-  if (!fallback) return { task: null, doneToday: true };
-  return { task: fallback, doneToday: true };
+  const interruptive = state.reflections
+    .slice(0, 6)
+    .some((item) => /拖延|打断|分心|焦虑|卡住/.test(item.text));
+
+  const node14 = nodeCompletionInDays(14);
+  const node7 = nodeCompletionInDays(7);
+
+  let chosen = available[0];
+  let bestScore = Number.NEGATIVE_INFINITY;
+  let reason = '保持节奏，推进当前能力节点。';
+
+  for (const task of available) {
+    const progress = state.nodeProgress[task.nodeId] || { level: 1, xp: 0 };
+    const ratio = progress.level >= MAX_NODE_LEVEL ? 1 : progress.xp / getXpCap(progress.level);
+    const bottleneck = (1 - ratio) * 28;
+    const lowMomentum = Math.max(0, 4 - (node7[task.nodeId] || 0)) * 6;
+    const overFocusPenalty = (node14[task.nodeId] || 0) > 8 ? 8 : 0;
+    const easyBonus = interruptive && task.difficulty === 'easy' ? 10 : 0;
+    const score = bottleneck + lowMomentum + easyBonus - overFocusPenalty;
+
+    if (score > bestScore) {
+      bestScore = score;
+      chosen = task;
+      if (interruptive && task.difficulty === 'easy') {
+        reason = '最近复盘出现分心/拖延，先做一个低阻力任务恢复节奏。';
+      } else if (lowMomentum >= 18) {
+        reason = '该节点近期推进偏慢，优先补足这里的进度。';
+      } else {
+        reason = '该节点当前进度最低，优先补齐短板。';
+      }
+    }
+  }
+
+  return { task: chosen, doneToday: false, reason };
+}
+
+function nodeCompletionInDays(days) {
+  const today = getDateKey();
+  const map = {};
+  for (const log of state.taskLogs) {
+    if (log.kind !== 'task') continue;
+    const diff = dateDistance(log.date, today);
+    if (diff < 0 || diff >= days) continue;
+    map[log.nodeId] = (map[log.nodeId] || 0) + 1;
+  }
+  return map;
 }
 
 function renderAll() {
@@ -558,17 +634,19 @@ function renderAll() {
   renderTasks();
   renderDailyCard();
   renderWeeklyReport();
+  renderGrowthVisuals();
   renderReflections();
   renderAnalytics();
 }
 
 function renderStats() {
   const today = getDateKey();
-  const todayXp = state.taskLogs
-    .filter((log) => log.date === today)
-    .reduce((sum, log) => sum + Number(log.xp || 0), 0);
+  const todayXp = state.taskLogs.filter((log) => log.date === today).reduce((sum, log) => sum + Number(log.xp || 0), 0);
   const weekXp = state.taskLogs
-    .filter((log) => dateDistance(log.date, today) >= 0 && dateDistance(log.date, today) < 7)
+    .filter((log) => {
+      const diff = dateDistance(log.date, today);
+      return diff >= 0 && diff < 7;
+    })
     .reduce((sum, log) => sum + Number(log.xp || 0), 0);
 
   refs.statAccountLevel.textContent = `Lv.${1 + Math.floor(state.totalXp / 180)}`;
@@ -583,13 +661,12 @@ function computeNodeLayout(nodes) {
   const depths = {};
 
   for (const node of nodes) {
-    nodeMap.set(node.id, node);
     children.set(node.id, []);
+    nodeMap.set(node.id, node);
   }
+
   for (const node of nodes) {
-    if (node.parentId && children.has(node.parentId)) {
-      children.get(node.parentId).push(node.id);
-    }
+    if (node.parentId && children.has(node.parentId)) children.get(node.parentId).push(node.id);
   }
 
   const roots = nodes
@@ -619,10 +696,7 @@ function computeNodeLayout(nodes) {
     layers[row].push(node);
   }
 
-  const layerRows = Object.keys(layers)
-    .map((v) => Number(v))
-    .sort((a, b) => a - b);
-
+  const layerRows = Object.keys(layers).map(Number).sort((a, b) => a - b);
   let maxCols = 3;
   for (const row of layerRows) {
     maxCols = Math.max(maxCols, layers[row].length);
@@ -631,13 +705,13 @@ function computeNodeLayout(nodes) {
   const positions = {};
   for (const row of layerRows) {
     const layer = layers[row];
-    const used = new Set();
     layer.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+    const used = new Set();
 
     layer.forEach((node, index) => {
       const suggested = Math.round(((index + 1) * (maxCols + 1)) / (layer.length + 1));
       let col = Math.min(maxCols, Math.max(1, suggested));
-      while (used.has(col) && col <= maxCols) col += 1;
+      while (used.has(col) && col < maxCols) col += 1;
       while (used.has(col) && col > 1) col -= 1;
       used.add(col);
       positions[node.id] = { row, col };
@@ -684,6 +758,7 @@ function renderTree() {
     card.style.gridRow = String(pos.row);
     card.dataset.nodeId = node.id;
     card.tabIndex = progress.unlocked ? 0 : -1;
+    card.setAttribute('role', 'listitem');
     card.setAttribute('aria-label', `${node.name}，等级 ${progress.level}，${progress.unlocked ? '已解锁' : '未解锁'}`);
 
     card.innerHTML = `
@@ -693,32 +768,31 @@ function renderTree() {
       </div>
       <p class="node-desc">${escapeHtml(node.desc)}</p>
       <div class="xp-track"><span style="width:${progressPct}%"></span></div>
-      <div class="node-meta">${
-        progress.level >= MAX_NODE_LEVEL ? '已满级' : `XP ${currentXp} / ${cap}`
-      }</div>
+      <div class="node-meta">${progress.level >= MAX_NODE_LEVEL ? '已满级' : `XP ${currentXp} / ${cap}`}</div>
       <button class="btn-plain" data-action="select" data-node="${node.id}" ${
-        !progress.unlocked ? 'disabled' : ''
-      } aria-pressed="${isSelected ? 'true' : 'false'}" aria-label="切换到${escapeHtml(node.name)}节点">${
-        isSelected ? '当前节点' : '切换节点'
-      }</button>
+      !progress.unlocked ? 'disabled' : ''
+    } aria-pressed="${isSelected ? 'true' : 'false'}" aria-label="切换到${escapeHtml(node.name)}节点">${
+      isSelected ? '当前节点' : '切换节点'
+    }</button>
       ${
         !progress.unlocked && parentName
           ? `<div class="node-meta">解锁条件：${escapeHtml(parentName)} 达到 Lv2</div>`
           : ''
       }
     `;
+
     refs.treeGrid.appendChild(card);
   }
 
   refs.treeGrid.querySelectorAll('[data-action="select"]').forEach((btn) => {
     btn.addEventListener('click', () => setSelectedNode(btn.dataset.node));
   });
+
   refs.treeGrid.querySelectorAll('.node-card').forEach((card) => {
     card.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
+      if ((event.key === 'Enter' || event.key === ' ') && state.nodeProgress[card.dataset.nodeId]?.unlocked) {
         event.preventDefault();
-        const id = card.dataset.nodeId;
-        if (id && state.nodeProgress[id]?.unlocked) setSelectedNode(id);
+        setSelectedNode(card.dataset.nodeId);
       }
     });
   });
@@ -739,6 +813,7 @@ function drawTreeLines(positionMap = null) {
   for (const node of state.nodes) {
     if (!node.parentId) continue;
     if (positionMap && (!positionMap[node.id] || !positionMap[node.parentId])) continue;
+
     const fromEl = refs.treeGrid.querySelector(`[data-node-id="${node.parentId}"]`);
     const toEl = refs.treeGrid.querySelector(`[data-node-id="${node.id}"]`);
     if (!fromEl || !toEl) continue;
@@ -782,9 +857,7 @@ function renderTasks() {
   refs.taskList.innerHTML = '';
   for (const task of nodeTasks) {
     const meta = difficultyMap[task.difficulty];
-    const doneToday = state.taskLogs.some(
-      (log) => log.kind === 'task' && log.taskId === task.id && log.date === today,
-    );
+    const doneToday = state.taskLogs.some((log) => log.kind === 'task' && log.taskId === task.id && log.date === today);
     const disabled = !selectedProgress.unlocked || doneToday;
 
     const item = document.createElement('article');
@@ -810,10 +883,12 @@ function renderTasks() {
 }
 
 function renderDailyCard() {
-  const daily = getDailyTask();
+  const daily = getDailyTaskRecommendation();
+
   if (!daily.task) {
     refs.dailyTaskTitle.textContent = '暂无可用任务';
     refs.dailyTaskHint.textContent = '请先创建节点和任务。';
+    refs.dailyTaskReason.textContent = '先添加一个任务再开始。';
     refs.completeDailyBtn.disabled = true;
     refs.focusNodeBtn.disabled = true;
     refs.completeDailyBtn.dataset.taskId = '';
@@ -826,6 +901,7 @@ function renderDailyCard() {
   const meta = difficultyMap[daily.task.difficulty];
   refs.dailyTaskTitle.textContent = daily.task.title;
   refs.dailyTaskHint.textContent = `节点：${getNodeById(daily.task.nodeId)?.name || '-'} ｜ 难度：${meta.label} ｜ 奖励：+${meta.xp} XP`;
+  refs.dailyTaskReason.textContent = `推荐理由：${daily.reason}`;
   refs.completeDailyBtn.dataset.taskId = daily.doneToday ? '' : daily.task.id;
   refs.focusNodeBtn.dataset.nodeId = daily.task.nodeId;
   refs.completeDailyBtn.disabled = daily.doneToday;
@@ -847,10 +923,7 @@ function getWeeklySummary() {
     xpByNode[log.nodeId] = (xpByNode[log.nodeId] || 0) + Number(log.xp || 0);
   }
 
-  const sorted = Object.entries(xpByNode)
-    .filter(([, xp]) => xp > 0)
-    .sort((a, b) => b[1] - a[1]);
-
+  const sorted = Object.entries(xpByNode).filter(([, xp]) => xp > 0).sort((a, b) => b[1] - a[1]);
   const topA = sorted[0] || null;
   const topB = sorted[1] || null;
   const weekXp = weekLogs.reduce((sum, log) => sum + Number(log.xp || 0), 0);
@@ -858,13 +931,7 @@ function getWeeklySummary() {
   const streakMod = state.streak % 7;
   const daysToBonus = state.streak === 0 ? 7 : streakMod === 0 ? 7 : 7 - streakMod;
 
-  return {
-    weekXp,
-    finishedCount,
-    topA,
-    topB,
-    daysToBonus,
-  };
+  return { weekXp, finishedCount, topA, topB, daysToBonus };
 }
 
 function renderWeeklyReport() {
@@ -884,6 +951,128 @@ function renderWeeklyReport() {
   ];
 
   refs.weeklyReportList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
+}
+
+function renderGrowthVisuals() {
+  renderHeatmap();
+  renderGrowthChart();
+  renderRecoveryMetrics();
+}
+
+function renderHeatmap() {
+  const today = getDateKey();
+  const xpByDay = {};
+  for (const log of state.taskLogs) {
+    xpByDay[log.date] = (xpByDay[log.date] || 0) + Number(log.xp || 0);
+  }
+
+  const days = [];
+  for (let i = 29; i >= 0; i -= 1) {
+    const date = addDays(today, -i);
+    days.push({ date, xp: xpByDay[date] || 0 });
+  }
+
+  refs.heatmap.innerHTML = days
+    .map((item) => {
+      const cls = item.xp >= 80 ? 'lv4' : item.xp >= 45 ? 'lv3' : item.xp >= 20 ? 'lv2' : item.xp > 0 ? 'lv1' : 'lv0';
+      return `<span class="heatmap-day ${cls}" title="${item.date}：${item.xp} XP"></span>`;
+    })
+    .join('');
+}
+
+function renderGrowthChart() {
+  const canvas = refs.nodeGrowthChart;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+
+  const today = getDateKey();
+  const days = [];
+  for (let i = 13; i >= 0; i -= 1) days.push(addDays(today, -i));
+
+  const nodeIds = state.nodes.slice(0, 4).map((node) => node.id);
+  const colors = ['#0f766e', '#d97706', '#7c3aed', '#2563eb'];
+
+  const maxValue = Math.max(
+    20,
+    ...nodeIds.map((nodeId) => {
+      let cum = 0;
+      let peak = 0;
+      for (const day of days) {
+        const value = state.taskLogs
+          .filter((log) => log.nodeId === nodeId && log.date === day)
+          .reduce((sum, log) => sum + Number(log.xp || 0), 0);
+        cum += value;
+        peak = Math.max(peak, cum);
+      }
+      return peak;
+    }),
+  );
+
+  ctx.strokeStyle = '#d5dede';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = 20 + (i * (height - 40)) / 4;
+    ctx.beginPath();
+    ctx.moveTo(36, y);
+    ctx.lineTo(width - 12, y);
+    ctx.stroke();
+  }
+
+  nodeIds.forEach((nodeId, index) => {
+    const color = colors[index % colors.length];
+    let cumulative = 0;
+    const points = days.map((day, i) => {
+      const value = state.taskLogs
+        .filter((log) => log.nodeId === nodeId && log.date === day)
+        .reduce((sum, log) => sum + Number(log.xp || 0), 0);
+      cumulative += value;
+      const x = 36 + (i * (width - 52)) / (days.length - 1);
+      const y = height - 20 - (cumulative / maxValue) * (height - 40);
+      return { x, y };
+    });
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    points.forEach((point, i) => {
+      if (i === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.stroke();
+
+    const nodeName = getNodeById(nodeId)?.name || nodeId;
+    ctx.fillStyle = color;
+    ctx.font = '12px "Noto Sans SC"';
+    ctx.fillText(nodeName, width - 130, 18 + index * 14);
+  });
+}
+
+function renderRecoveryMetrics() {
+  const taskDates = [...new Set(state.taskLogs.filter((log) => log.kind === 'task').map((log) => log.date))].sort();
+
+  let gapCount = 0;
+  let recoveryDays = 0;
+
+  for (let i = 1; i < taskDates.length; i += 1) {
+    const gap = dateDistance(taskDates[i - 1], taskDates[i]);
+    if (gap > 1) {
+      gapCount += 1;
+      recoveryDays += gap - 1;
+    }
+  }
+
+  const avgRecovery = gapCount ? (recoveryDays / gapCount).toFixed(1) : '0';
+  const lines = [
+    `中断后恢复次数：<strong>${gapCount}</strong> 次`,
+    `平均恢复天数：<strong>${avgRecovery}</strong> 天`,
+    `最近一次任务：<strong>${taskDates[taskDates.length - 1] || '-'}</strong>`,
+  ];
+
+  refs.recoveryList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
 }
 
 async function generateShareImage() {
@@ -906,7 +1095,7 @@ async function generateShareImage() {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = 'rgba(255,255,255,0.86)';
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
   roundRect(ctx, 70, 90, 940, 1170, 40);
   ctx.fill();
 
@@ -1018,7 +1207,8 @@ function renderNodeSelectors() {
 
   refs.reminderToggle.checked = state.meta.reminderEnabled;
   refs.reminderTime.value = state.meta.reminderTime || '20:30';
-  refs.cloudGistIdInput.value = state.meta.cloudGistId || '';
+  refs.syncCodeInput.value = state.meta.syncCode || '';
+  refs.enablePushBtn.textContent = state.meta.pushEnabled ? '推送已启用' : '启用推送';
 }
 
 function addCustomNode() {
@@ -1076,6 +1266,14 @@ function addCustomTask() {
   showToast('自定义任务已添加。');
 }
 
+function buildBackupPayload() {
+  return {
+    exportedAt: new Date().toISOString(),
+    version: state.version,
+    state,
+  };
+}
+
 function exportData() {
   const payload = buildBackupPayload();
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1111,71 +1309,35 @@ async function importData() {
   }
 }
 
-function hydrateCloudInputs() {
-  const rememberedToken = localStorage.getItem(REMEMBERED_TOKEN_KEY) || '';
-  refs.cloudTokenInput.value = rememberedToken;
-  refs.rememberTokenToggle.checked = Boolean(rememberedToken);
-  refs.cloudGistIdInput.value = state.meta.cloudGistId || '';
-}
-
-function syncRememberedTokenState() {
-  const token = refs.cloudTokenInput.value.trim();
-  if (refs.rememberTokenToggle.checked && token) {
-    localStorage.setItem(REMEMBERED_TOKEN_KEY, token);
-  } else {
-    localStorage.removeItem(REMEMBERED_TOKEN_KEY);
-  }
-}
-
-function buildBackupPayload() {
-  return {
-    exportedAt: new Date().toISOString(),
-    version: state.version,
-    state,
-  };
+function generateSyncCode() {
+  const code = `tree-${Math.random().toString(36).slice(2, 6)}-${Math.random().toString(36).slice(2, 6)}-${Date.now()
+    .toString(36)
+    .slice(-4)}`;
+  refs.syncCodeInput.value = code;
+  state.meta.syncCode = code;
+  trackEvent('generate_sync_code');
+  saveState();
+  showToast('已生成同步口令。');
 }
 
 async function uploadCloudBackup() {
-  const token = refs.cloudTokenInput.value.trim();
-  if (!token) {
-    showToast('请先输入 GitHub Token。');
+  const syncCode = refs.syncCodeInput.value.trim();
+  if (!syncCode) {
+    showToast('请先填写同步口令。');
     return;
   }
 
-  const gistId = refs.cloudGistIdInput.value.trim();
-  const payload = {
-    description: 'TREE cloud backup',
-    public: false,
-    files: {
-      'tree-backup.json': {
-        content: JSON.stringify(buildBackupPayload(), null, 2),
-      },
-    },
-  };
-
-  const url = gistId ? `https://api.github.com/gists/${encodeURIComponent(gistId)}` : 'https://api.github.com/gists';
-  const method = gistId ? 'PATCH' : 'POST';
-
   try {
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      body: JSON.stringify(payload),
+    const res = await fetch('/api/sync/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ syncCode, payload: buildBackupPayload() }),
     });
-    if (!res.ok) {
-      throw new Error(`GitHub API ${res.status}`);
-    }
-    const data = await res.json();
-    const nextGistId = data.id || gistId;
-    state.meta.cloudGistId = nextGistId;
-    refs.cloudGistIdInput.value = nextGistId;
-    syncRememberedTokenState();
-    trackEvent('cloud_upload', { gistId: nextGistId, created: !gistId });
+
+    if (!res.ok) throw new Error(`服务响应 ${res.status}`);
+
+    state.meta.syncCode = syncCode;
+    trackEvent('cloud_upload');
     saveState();
     showToast('云端备份成功。');
   } catch (error) {
@@ -1184,45 +1346,144 @@ async function uploadCloudBackup() {
 }
 
 async function downloadCloudBackup() {
-  const gistId = refs.cloudGistIdInput.value.trim() || state.meta.cloudGistId;
-  if (!gistId) {
-    showToast('请先填写 Gist ID。');
+  const syncCode = refs.syncCodeInput.value.trim() || state.meta.syncCode;
+  if (!syncCode) {
+    showToast('请先填写同步口令。');
     return;
   }
 
-  const token = refs.cloudTokenInput.value.trim();
   try {
-    const res = await fetch(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
+    const res = await fetch('/api/sync/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ syncCode }),
     });
-    if (!res.ok) {
-      throw new Error(`GitHub API ${res.status}`);
-    }
+
+    if (!res.ok) throw new Error(`服务响应 ${res.status}`);
+
     const data = await res.json();
-    const file = data.files?.['tree-backup.json'];
-    if (!file) {
-      throw new Error('未找到 tree-backup.json');
-    }
+    if (!data?.payload) throw new Error('云端没有备份');
 
-    const content = typeof file.content === 'string' ? file.content : await fetch(file.raw_url).then((r) => r.text());
-    const parsed = JSON.parse(content);
-
-    state = mergeState(parsed.state || parsed);
-    state.meta.cloudGistId = gistId;
+    state = mergeState(data.payload.state || data.payload);
+    state.meta.syncCode = syncCode;
     state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
     ensureSelectedNode();
-    syncRememberedTokenState();
-    trackEvent('cloud_download', { gistId });
+    trackEvent('cloud_download');
     saveState();
     renderAll();
     showToast('已从云端恢复数据。');
   } catch (error) {
     showToast(`云端恢复失败：${error.message}`);
   }
+}
+
+async function enablePushNotifications() {
+  const syncCode = refs.syncCodeInput.value.trim() || state.meta.syncCode;
+  if (!syncCode) {
+    showToast('请先填写同步口令，再启用推送。');
+    return;
+  }
+
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    showToast('当前浏览器不支持 Web Push。');
+    return;
+  }
+
+  const permissionOk = await ensureNotificationPermission();
+  if (!permissionOk) {
+    showToast('请先在浏览器允许通知权限。');
+    return;
+  }
+
+  try {
+    if (!swRegistration) {
+      swRegistration = await navigator.serviceWorker.register('/service-worker.js');
+    }
+
+    const keyRes = await fetch('/api/push/public-key');
+    if (!keyRes.ok) throw new Error(`获取公钥失败 ${keyRes.status}`);
+    const keyData = await keyRes.json();
+    const publicKey = keyData?.publicKey;
+    if (!publicKey) throw new Error('公钥为空');
+
+    let subscription = await swRegistration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+
+    const subRes = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ syncCode, subscription }),
+    });
+    if (!subRes.ok) throw new Error(`订阅失败 ${subRes.status}`);
+
+    state.meta.syncCode = syncCode;
+    state.meta.pushEnabled = true;
+    state.meta.lastPushSyncAt = new Date().toISOString();
+    trackEvent('push_enable');
+    saveState();
+
+    await syncReminderToServer();
+    refs.enablePushBtn.textContent = '推送已启用';
+    showToast('Web Push 已启用。');
+  } catch (error) {
+    showToast(`启用推送失败：${error.message}`);
+  }
+}
+
+async function syncReminderToServer() {
+  if (!state.meta.pushEnabled) return;
+  const syncCode = refs.syncCodeInput.value.trim() || state.meta.syncCode;
+  if (!syncCode) return;
+
+  try {
+    const res = await fetch('/api/reminder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        syncCode,
+        enabled: Boolean(state.meta.reminderEnabled),
+        time: state.meta.reminderTime,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      }),
+    });
+    if (!res.ok) throw new Error(`提醒同步失败 ${res.status}`);
+    state.meta.lastPushSyncAt = new Date().toISOString();
+    saveState();
+  } catch {
+    // fallback only
+  }
+}
+
+async function triggerServerPushTest(message) {
+  if (!state.meta.pushEnabled) return;
+  const syncCode = refs.syncCodeInput.value.trim() || state.meta.syncCode;
+  if (!syncCode) return;
+
+  try {
+    await fetch('/api/push/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ syncCode, message }),
+    });
+  } catch {
+    // fallback only
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
 }
 
 function downloadReminderICS() {
@@ -1290,6 +1551,8 @@ function renderAnalytics() {
 
   const d1 = calculateRetention(state.meta.visits, 1);
   const d7 = calculateRetention(state.meta.visits, 7);
+
+  const weekly = computeWeeklyLayerMetrics();
   const onboardingRate = onboardingStart === 0 ? 0 : Math.round((onboardingFinish / onboardingStart) * 100);
   const activationRate = onboardingFinish === 0 ? 0 : Math.round((firstTask / onboardingFinish) * 100);
 
@@ -1298,12 +1561,54 @@ function renderAnalytics() {
     `完成任务：<strong>${completeCount}</strong> 次`,
     `触发升级：<strong>${levelUpCount}</strong> 次`,
     `新手漏斗：开始 <strong>${onboardingStart}</strong> / 完成 <strong>${onboardingFinish}</strong>（完成率 ${onboardingRate}%）`,
-    `激活率：首个任务完成 <strong>${firstTask}</strong>（相对已完成引导 ${activationRate}%）`,
+    `激活率：首任务完成 <strong>${firstTask}</strong>（相对完成引导 ${activationRate}%）`,
     `D1 留存：<strong>${d1.rate}%</strong>（${d1.retained}/${d1.eligible}）`,
     `D7 留存：<strong>${d7.rate}%</strong>（${d7.retained}/${d7.eligible}）`,
+    `本周分层：新增 <strong>${weekly.newUsers}</strong> ｜ 激活 <strong>${weekly.activatedUsers}</strong> ｜ 留存 <strong>${weekly.retainedUsers}</strong> ｜ 回流 <strong>${weekly.reactivatedUsers}</strong>`,
     `异常拦截：<strong>${suspiciousBlocked}</strong> 次`,
   ];
+
   refs.analyticsList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
+}
+
+function computeWeeklyLayerMetrics() {
+  const today = getDateKey();
+  const weekStart = getWeekStart(today);
+  const prevWeekStart = addDays(weekStart, -7);
+
+  const firstVisit = state.meta.firstVisitDate;
+  const newUsers = firstVisit && dateDistance(weekStart, firstVisit) >= 0 && dateDistance(firstVisit, today) >= 0 ? 1 : 0;
+
+  const firstTaskDate = state.analytics.events
+    .filter((e) => e.type === 'first_task_complete')
+    .map((e) => e.date.slice(0, 10))
+    .sort()[0];
+
+  const activatedUsers = firstTaskDate && dateDistance(weekStart, firstTaskDate) >= 0 && dateDistance(firstTaskDate, today) >= 0 ? 1 : 0;
+
+  const visits = [...new Set(state.meta.visits)].sort();
+  const visitedThisWeek = visits.some((d) => dateDistance(weekStart, d) >= 0 && dateDistance(d, today) >= 0);
+  const visitedPrevWeek = visits.some((d) => dateDistance(prevWeekStart, d) >= 0 && dateDistance(d, addDays(weekStart, -1)) >= 0);
+  const retainedUsers = visitedThisWeek && visitedPrevWeek ? 1 : 0;
+
+  let reactivatedUsers = 0;
+  const firstThisWeekVisit = visits.find((d) => dateDistance(weekStart, d) >= 0 && dateDistance(d, today) >= 0);
+  if (firstThisWeekVisit) {
+    const previousVisit = [...visits].reverse().find((d) => dateDistance(d, firstThisWeekVisit) > 0);
+    if (previousVisit && dateDistance(previousVisit, firstThisWeekVisit) >= 7) {
+      reactivatedUsers = 1;
+    }
+  }
+
+  return { newUsers, activatedUsers, retainedUsers, reactivatedUsers };
+}
+
+function getWeekStart(dateKey) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return getDateKey(date);
 }
 
 function calculateRetention(visits, days) {
@@ -1321,25 +1626,27 @@ function calculateRetention(visits, days) {
     if (visitSet.has(addDays(day, days))) retained += 1;
   }
 
-  const rate = eligible === 0 ? 0 : Math.round((retained / eligible) * 100);
-  return { eligible, retained, rate };
+  return {
+    eligible,
+    retained,
+    rate: eligible === 0 ? 0 : Math.round((retained / eligible) * 100),
+  };
 }
 
-function checkReminder() {
-  if (!state.meta.reminderEnabled) return;
+function checkReminderFallback() {
+  if (!state.meta.reminderEnabled || state.meta.pushEnabled) return;
 
   const now = new Date();
   const today = getDateKey(now);
   if (state.meta.lastReminderDate === today) return;
 
-  const reminderTime = state.meta.reminderTime || '20:30';
-  const [h, m] = reminderTime.split(':').map((v) => Number(v));
+  const [h, m] = (state.meta.reminderTime || '20:30').split(':').map((v) => Number(v));
   const passed = now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
   if (!passed) return;
 
   sendReminder('今日任务时间到：先完成一个最小动作。');
   state.meta.lastReminderDate = today;
-  trackEvent('daily_reminder');
+  trackEvent('daily_reminder_local');
   saveState();
 }
 
@@ -1349,7 +1656,7 @@ function sendReminder(message) {
     try {
       new Notification('能力树升级提醒', { body: message });
     } catch {
-      // No-op
+      // noop
     }
   }
 }
@@ -1386,14 +1693,6 @@ function makeId(prefix) {
     return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function hashString(text) {
-  let hash = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-  }
-  return hash;
 }
 
 function escapeHtml(text) {
