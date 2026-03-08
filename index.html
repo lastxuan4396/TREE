@@ -4,423 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>能力树升级</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700;800&display=swap');
-
-      :root {
-        --bg-a: #f6ead8;
-        --bg-b: #d8f1eb;
-        --ink: #1f2f34;
-        --muted: #586d75;
-        --line: rgba(31, 47, 52, 0.17);
-        --panel: rgba(255, 255, 255, 0.78);
-        --panel-strong: rgba(255, 255, 255, 0.9);
-        --gold: #d97706;
-        --teal: #0f766e;
-        --coral: #dc6d4f;
-        --ok: #0f5132;
-        --warn: #9a3412;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font-family: 'Noto Sans SC', sans-serif;
-        color: var(--ink);
-        background:
-          radial-gradient(circle at 10% 16%, rgba(241, 174, 107, 0.34), transparent 34%),
-          radial-gradient(circle at 82% 88%, rgba(63, 162, 140, 0.3), transparent 36%),
-          linear-gradient(150deg, var(--bg-a), var(--bg-b));
-        padding: clamp(14px, 2.2vw, 26px);
-      }
-
-      .app {
-        width: min(1240px, 100%);
-        margin: 0 auto;
-        border-radius: 26px;
-        border: 1px solid var(--line);
-        background: var(--panel);
-        backdrop-filter: blur(12px);
-        box-shadow: 0 26px 70px rgba(18, 40, 45, 0.16);
-        overflow: hidden;
-      }
-
-      .topbar {
-        display: flex;
-        justify-content: space-between;
-        gap: 14px;
-        flex-wrap: wrap;
-        align-items: flex-end;
-        padding: clamp(18px, 2.8vw, 28px);
-        border-bottom: 1px solid var(--line);
-      }
-
-      h1 {
-        margin: 0;
-        font-family: 'Ma Shan Zheng', cursive;
-        font-size: clamp(38px, 5vw, 58px);
-        font-weight: 400;
-        line-height: 0.95;
-        color: #24373d;
-      }
-
-      .subtitle {
-        margin: 10px 0 0;
-        max-width: 620px;
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .stats {
-        display: grid;
-        gap: 8px;
-      }
-
-      .stat-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        border-radius: 999px;
-        border: 1px solid var(--line);
-        background: #fff;
-        padding: 6px 12px;
-        font-size: 12px;
-        font-weight: 700;
-      }
-
-      .shell {
-        display: grid;
-        grid-template-columns: 1.08fr 0.92fr;
-        gap: 14px;
-        padding: clamp(14px, 2vw, 22px);
-      }
-
-      .panel {
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        background: var(--panel-strong);
-        padding: 14px;
-      }
-
-      .panel h2 {
-        margin: 0;
-        font-size: 21px;
-      }
-
-      .panel-head {
-        margin-bottom: 10px;
-      }
-
-      .panel-note {
-        margin: 6px 0 0;
-        color: var(--muted);
-        font-size: 13px;
-      }
-
-      .tree-wrap {
-        position: relative;
-        overflow: auto;
-      }
-
-      .tree-grid {
-        position: relative;
-        min-width: 600px;
-        min-height: 470px;
-        padding: 10px;
-        display: grid;
-        grid-template-columns: repeat(3, minmax(160px, 1fr));
-        grid-template-rows: repeat(5, minmax(82px, auto));
-        gap: 14px;
-      }
-
-      #treeLines {
-        position: absolute;
-        inset: 10px;
-        pointer-events: none;
-      }
-
-      .node-card {
-        position: relative;
-        z-index: 2;
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 10px;
-        background: #fff;
-        display: grid;
-        gap: 8px;
-        align-content: start;
-        transition: all 200ms ease;
-      }
-
-      .node-card.unlocked {
-        box-shadow: 0 6px 20px rgba(32, 60, 67, 0.1);
-      }
-
-      .node-card.locked {
-        background: #f2f4f4;
-        color: #6d7b81;
-        filter: grayscale(0.35);
-      }
-
-      .node-card.selected {
-        border-color: rgba(217, 119, 6, 0.65);
-        box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.16);
-      }
-
-      .node-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .node-name {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 700;
-      }
-
-      .level-badge {
-        border-radius: 999px;
-        padding: 2px 8px;
-        font-size: 11px;
-        font-weight: 700;
-        border: 1px solid rgba(15, 118, 110, 0.26);
-        color: #0b605a;
-        background: rgba(15, 118, 110, 0.08);
-      }
-
-      .node-desc {
-        margin: 0;
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .xp-track {
-        height: 8px;
-        border-radius: 999px;
-        background: #e8ecec;
-        overflow: hidden;
-      }
-
-      .xp-track > span {
-        display: block;
-        height: 100%;
-        width: 0;
-        background: linear-gradient(90deg, #f59e0b, #10b981);
-        transition: width 220ms ease;
-      }
-
-      .node-meta {
-        font-size: 11px;
-        color: var(--muted);
-      }
-
-      .node-actions {
-        display: flex;
-        gap: 8px;
-      }
-
-      button {
-        border: 1px solid transparent;
-        border-radius: 10px;
-        padding: 8px 12px;
-        font-size: 13px;
-        font-family: inherit;
-        font-weight: 700;
-        cursor: pointer;
-        transition: all 170ms ease;
-      }
-
-      button:hover {
-        transform: translateY(-1px);
-      }
-
-      button:disabled {
-        opacity: 0.45;
-        transform: none;
-        cursor: not-allowed;
-      }
-
-      .btn-main {
-        color: #fff;
-        background: linear-gradient(135deg, var(--gold), #f39c12);
-      }
-
-      .btn-sub {
-        color: #fff;
-        background: linear-gradient(135deg, var(--teal), #1fa198);
-      }
-
-      .btn-plain {
-        background: #fff;
-        border-color: var(--line);
-        color: var(--ink);
-      }
-
-      .right-col {
-        display: grid;
-        gap: 14px;
-        align-content: start;
-      }
-
-      .task-list {
-        display: grid;
-        gap: 8px;
-      }
-
-      .task-item {
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 10px;
-        background: #fff;
-        display: grid;
-        gap: 8px;
-      }
-
-      .task-title {
-        margin: 0;
-        font-size: 14px;
-      }
-
-      .task-meta {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        flex-wrap: wrap;
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .tag {
-        display: inline-flex;
-        align-items: center;
-        border-radius: 999px;
-        padding: 2px 8px;
-        font-size: 11px;
-        font-weight: 700;
-      }
-
-      .tag.easy {
-        color: #0f5132;
-        background: #def7e7;
-      }
-
-      .tag.medium {
-        color: #92400e;
-        background: #fef3c7;
-      }
-
-      .tag.hard {
-        color: #7f1d1d;
-        background: #fee2e2;
-      }
-
-      textarea {
-        width: 100%;
-        min-height: 84px;
-        resize: vertical;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        font: inherit;
-        padding: 10px 12px;
-        line-height: 1.45;
-        color: var(--ink);
-        background: #fff;
-      }
-
-      .muted {
-        color: var(--muted);
-      }
-
-      .mini-title {
-        margin: 0 0 8px;
-        font-size: 15px;
-      }
-
-      .history {
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        display: grid;
-        gap: 7px;
-      }
-
-      .history li {
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: #fff;
-        padding: 8px 9px;
-        font-size: 12px;
-        display: grid;
-        gap: 3px;
-      }
-
-      .report-list {
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        display: grid;
-        gap: 7px;
-      }
-
-      .report-list li {
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 8px 9px;
-        background: #fff;
-        font-size: 13px;
-      }
-
-      .toast {
-        position: fixed;
-        right: 16px;
-        bottom: 16px;
-        border-radius: 10px;
-        background: rgba(31, 47, 52, 0.92);
-        color: #fff;
-        font-size: 13px;
-        padding: 10px 12px;
-        opacity: 0;
-        transform: translateY(10px);
-        pointer-events: none;
-        transition: all 200ms ease;
-      }
-
-      .toast.show {
-        opacity: 1;
-        transform: translateY(0);
-      }
-
-      .small-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      @media (max-width: 980px) {
-        .shell {
-          grid-template-columns: 1fr;
-        }
-
-        .tree-grid {
-          min-width: 540px;
-        }
-      }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app">
       <header class="topbar">
         <div>
           <h1>能力树升级</h1>
-          <p class="subtitle">
-            每天做一点，持续点亮节点。完成任务拿 XP，节点升级后自动解锁下一层能力。
-          </p>
+          <p class="subtitle">每天只做一个最小动作，持续进化你的执行力。</p>
         </div>
         <div class="stats">
           <span class="stat-pill">总等级 <strong id="statAccountLevel">Lv.1</strong></span>
@@ -431,19 +28,41 @@
       </header>
 
       <main class="shell">
-        <section class="panel">
+        <section class="panel tree-panel">
           <div class="panel-head">
-            <h2>执行力能力树</h2>
-            <p class="panel-note">规则：父节点达到 Lv2 才能解锁子节点；每 7 天连续完成任务奖励 80 XP。</p>
+            <h2>能力树</h2>
+            <p class="panel-note">父节点达到 Lv2 自动解锁子节点。每天同任务只计分一次。</p>
           </div>
           <div class="tree-wrap">
             <div id="treeGrid" class="tree-grid">
-              <svg id="treeLines"></svg>
+              <svg id="treeLines" aria-hidden="true"></svg>
             </div>
           </div>
         </section>
 
         <section class="right-col">
+          <section class="panel">
+            <div class="panel-head compact">
+              <h2>今日任务卡</h2>
+              <span id="dailyCardState" class="state-tag">待完成</span>
+            </div>
+            <p id="dailyTaskTitle" class="task-title big">-</p>
+            <p id="dailyTaskHint" class="panel-note">-</p>
+            <div class="small-actions">
+              <button id="completeDailyBtn" class="btn-main">完成今日任务</button>
+              <button id="focusNodeBtn" class="btn-plain">定位到节点</button>
+            </div>
+            <hr />
+            <div class="reminder-row">
+              <label>
+                <input id="reminderToggle" type="checkbox" />
+                每日提醒
+              </label>
+              <input id="reminderTime" type="time" value="20:30" />
+              <button id="testReminderBtn" class="btn-plain">测试提醒</button>
+            </div>
+          </section>
+
           <section class="panel">
             <div class="panel-head">
               <h2 id="taskPanelTitle">节点任务</h2>
@@ -453,22 +72,86 @@
           </section>
 
           <section class="panel">
+            <div class="panel-head compact">
+              <h2>本周成长报告</h2>
+              <button id="generateShareBtn" class="btn-sub">生成分享图</button>
+            </div>
+            <ul id="weeklyReportList" class="report-list"></ul>
+            <div class="small-actions">
+              <a id="downloadShareBtn" class="btn-link disabled" download="weekly-report.png">下载分享图</a>
+            </div>
+            <img id="sharePreview" class="share-preview" alt="周报分享预览" hidden />
+          </section>
+
+          <section class="panel">
             <h3 class="mini-title">今日一句复盘</h3>
             <textarea
               id="reflectionInput"
               maxlength="120"
-              placeholder="例如：我发现自己只要先做 5 分钟，阻力就会明显变小。"
+              placeholder="例如：先开始 5 分钟，心里阻力就会明显变小。"
             ></textarea>
             <div class="small-actions" style="margin-top: 8px">
               <button id="saveReflectionBtn" class="btn-sub">保存复盘</button>
-              <button id="clearDataBtn" class="btn-plain">重置全部数据</button>
             </div>
-            <p class="panel-note">复盘会保存在本地浏览器，不会上传。</p>
           </section>
 
           <section class="panel">
-            <h3 class="mini-title">本周成长报告</h3>
-            <ul id="weeklyReportList" class="report-list"></ul>
+            <h3 class="mini-title">自定义能力树</h3>
+            <div class="form-grid">
+              <label>
+                新节点名称
+                <input id="newNodeName" type="text" maxlength="18" placeholder="例如：复盘闭环" />
+              </label>
+              <label>
+                父节点
+                <select id="newNodeParent"></select>
+              </label>
+              <label class="full">
+                节点描述
+                <input id="newNodeDesc" type="text" maxlength="50" placeholder="一句描述这个能力" />
+              </label>
+            </div>
+            <div class="small-actions">
+              <button id="addNodeBtn" class="btn-main">添加节点</button>
+            </div>
+            <hr />
+            <div class="form-grid">
+              <label>
+                任务所属节点
+                <select id="newTaskNode"></select>
+              </label>
+              <label>
+                难度
+                <select id="newTaskDifficulty">
+                  <option value="easy">简单 +10</option>
+                  <option value="medium">中等 +20</option>
+                  <option value="hard">困难 +35</option>
+                </select>
+              </label>
+              <label class="full">
+                任务内容
+                <input id="newTaskTitle" type="text" maxlength="48" placeholder="例如：给今天任务设置 1 个检查点" />
+              </label>
+            </div>
+            <div class="small-actions">
+              <button id="addTaskBtn" class="btn-main">添加任务</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">数据迁移</h3>
+            <div class="small-actions">
+              <button id="exportDataBtn" class="btn-plain">导出 JSON</button>
+              <button id="importDataBtn" class="btn-plain">导入 JSON</button>
+              <button id="clearDataBtn" class="btn-plain danger">重置全部数据</button>
+              <input id="importFileInput" type="file" accept="application/json" hidden />
+            </div>
+            <p class="panel-note">导入会覆盖当前本地数据，请先导出备份。</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">基础数据看板</h3>
+            <ul id="analyticsList" class="report-list"></ul>
           </section>
 
           <section class="panel">
@@ -481,620 +164,21 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <script>
-      (() => {
-        const STORAGE_KEY = 'ability-tree-upgrade-v1';
-        const MAX_NODE_LEVEL = 5;
-        const DAY_MS = 24 * 60 * 60 * 1000;
-
-        const nodes = [
-          {
-            id: 'spark',
-            name: '启动火花',
-            desc: '把“想做”变成“先开工”。',
-            parentId: null,
-            row: 1,
-            col: 2,
-          },
-          {
-            id: 'breakdown',
-            name: '任务拆解',
-            desc: '把大目标拆成可执行步骤。',
-            parentId: 'spark',
-            row: 2,
-            col: 2,
-          },
-          {
-            id: 'focus',
-            name: '专注护盾',
-            desc: '减少中断，提升完成质量。',
-            parentId: 'breakdown',
-            row: 3,
-            col: 1,
-          },
-          {
-            id: 'deadline',
-            name: '期限掌控',
-            desc: '不拖到最后一天，提前收口。',
-            parentId: 'breakdown',
-            row: 3,
-            col: 3,
-          },
-          {
-            id: 'output',
-            name: '稳定输出',
-            desc: '连续完成，形成节奏。',
-            parentId: 'focus',
-            row: 4,
-            col: 1,
-          },
-          {
-            id: 'collab',
-            name: '协作推进',
-            desc: '推进协作任务并及时同步。',
-            parentId: 'deadline',
-            row: 4,
-            col: 3,
-          },
-          {
-            id: 'upgrade',
-            name: '复盘升级',
-            desc: '总结规律，持续优化。',
-            parentId: 'output',
-            row: 5,
-            col: 2,
-          },
-        ];
-
-        const tasks = [
-          { id: 'spark-1', nodeId: 'spark', title: '立刻开始 5 分钟', difficulty: 'easy' },
-          { id: 'spark-2', nodeId: 'spark', title: '把阻力写成一句话', difficulty: 'easy' },
-          { id: 'spark-3', nodeId: 'spark', title: '完成一个最小动作', difficulty: 'medium' },
-          { id: 'break-1', nodeId: 'breakdown', title: '把任务拆成 3 步', difficulty: 'easy' },
-          { id: 'break-2', nodeId: 'breakdown', title: '给每一步估算时间', difficulty: 'medium' },
-          { id: 'break-3', nodeId: 'breakdown', title: '删掉一个不必要步骤', difficulty: 'hard' },
-          { id: 'focus-1', nodeId: 'focus', title: '专注 25 分钟不切屏', difficulty: 'medium' },
-          { id: 'focus-2', nodeId: 'focus', title: '记录一次被打断原因', difficulty: 'easy' },
-          { id: 'focus-3', nodeId: 'focus', title: '关闭 2 个干扰通知', difficulty: 'hard' },
-          { id: 'dead-1', nodeId: 'deadline', title: '把截止日提前 1 天', difficulty: 'medium' },
-          { id: 'dead-2', nodeId: 'deadline', title: '设置中间检查点', difficulty: 'easy' },
-          { id: 'dead-3', nodeId: 'deadline', title: '今天收口一个悬而未决项', difficulty: 'hard' },
-          { id: 'out-1', nodeId: 'output', title: '今天产出一个可交付结果', difficulty: 'medium' },
-          { id: 'out-2', nodeId: 'output', title: '连续两段番茄钟', difficulty: 'hard' },
-          { id: 'out-3', nodeId: 'output', title: '完成后主动做一次复查', difficulty: 'easy' },
-          { id: 'col-1', nodeId: 'collab', title: '给协作者同步当前进展', difficulty: 'easy' },
-          { id: 'col-2', nodeId: 'collab', title: '发出一个明确的协作请求', difficulty: 'medium' },
-          { id: 'col-3', nodeId: 'collab', title: '对齐一次关键交付标准', difficulty: 'hard' },
-          { id: 'up-1', nodeId: 'upgrade', title: '写下今日 1 条有效做法', difficulty: 'easy' },
-          { id: 'up-2', nodeId: 'upgrade', title: '识别一个重复卡点并给对策', difficulty: 'medium' },
-          { id: 'up-3', nodeId: 'upgrade', title: '整理一页本周经验清单', difficulty: 'hard' },
-        ];
-
-        const difficultyMap = {
-          easy: { label: '简单', xp: 10, className: 'easy' },
-          medium: { label: '中等', xp: 20, className: 'medium' },
-          hard: { label: '困难', xp: 35, className: 'hard' },
-        };
-
-        const refs = {
-          treeGrid: document.getElementById('treeGrid'),
-          treeLines: document.getElementById('treeLines'),
-          taskList: document.getElementById('taskList'),
-          taskPanelTitle: document.getElementById('taskPanelTitle'),
-          taskPanelHint: document.getElementById('taskPanelHint'),
-          statAccountLevel: document.getElementById('statAccountLevel'),
-          statStreak: document.getElementById('statStreak'),
-          statTodayXp: document.getElementById('statTodayXp'),
-          statWeekXp: document.getElementById('statWeekXp'),
-          weeklyReportList: document.getElementById('weeklyReportList'),
-          reflectionInput: document.getElementById('reflectionInput'),
-          saveReflectionBtn: document.getElementById('saveReflectionBtn'),
-          clearDataBtn: document.getElementById('clearDataBtn'),
-          reflectionHistory: document.getElementById('reflectionHistory'),
-          toast: document.getElementById('toast'),
-        };
-
-        let state = loadState();
-
-        syncUnlockState();
-        renderAll();
-
-        refs.saveReflectionBtn.addEventListener('click', saveReflection);
-        refs.clearDataBtn.addEventListener('click', clearData);
-        window.addEventListener('resize', debounce(drawTreeLines, 120));
-
-        function createInitialState() {
-          const nodeProgress = {};
-          for (const node of nodes) {
-            nodeProgress[node.id] = {
-              level: 1,
-              xp: 0,
-              unlocked: !node.parentId,
-            };
-          }
-          return {
-            selectedNodeId: nodes[0].id,
-            totalXp: 0,
-            streak: 0,
-            lastCheckinDate: '',
-            taskLogs: [],
-            reflections: [],
-            nodeProgress,
-          };
-        }
-
-        function loadState() {
-          try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return createInitialState();
-            const parsed = JSON.parse(raw);
-            return mergeState(parsed);
-          } catch (err) {
-            return createInitialState();
-          }
-        }
-
-        function mergeState(source) {
-          const base = createInitialState();
-          if (!source || typeof source !== 'object') return base;
-
-          base.selectedNodeId = source.selectedNodeId || base.selectedNodeId;
-          base.totalXp = Number.isFinite(source.totalXp) ? source.totalXp : 0;
-          base.streak = Number.isFinite(source.streak) ? source.streak : 0;
-          base.lastCheckinDate = typeof source.lastCheckinDate === 'string' ? source.lastCheckinDate : '';
-
-          if (Array.isArray(source.taskLogs)) {
-            base.taskLogs = source.taskLogs.filter((log) => log && typeof log.date === 'string');
-          }
-
-          if (Array.isArray(source.reflections)) {
-            base.reflections = source.reflections
-              .filter((item) => item && typeof item.text === 'string')
-              .slice(0, 60);
-          }
-
-          if (source.nodeProgress && typeof source.nodeProgress === 'object') {
-            for (const node of nodes) {
-              const incoming = source.nodeProgress[node.id];
-              if (!incoming) continue;
-              const level = clampInt(incoming.level, 1, MAX_NODE_LEVEL);
-              const xpCap = getXpCap(level);
-              base.nodeProgress[node.id] = {
-                level,
-                xp: clampInt(incoming.xp, 0, xpCap),
-                unlocked: Boolean(incoming.unlocked),
-              };
-            }
-          }
-
-          return base;
-        }
-
-        function saveState() {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        }
-
-        function syncUnlockState() {
-          for (const node of nodes) {
-            const progress = state.nodeProgress[node.id];
-            if (!node.parentId) {
-              progress.unlocked = true;
-              continue;
-            }
-            const parent = state.nodeProgress[node.parentId];
-            if (parent.level >= 2) progress.unlocked = true;
-          }
-        }
-
-        function xpToNextLevel(level) {
-          return 100 + level * 40;
-        }
-
-        function getXpCap(level) {
-          return level >= MAX_NODE_LEVEL ? xpToNextLevel(MAX_NODE_LEVEL - 1) : xpToNextLevel(level);
-        }
-
-        function awardXp(nodeId, amount) {
-          const progress = state.nodeProgress[nodeId];
-          state.totalXp += amount;
-          let remaining = amount;
-          let levelUps = 0;
-
-          while (remaining > 0 && progress.level < MAX_NODE_LEVEL) {
-            const needed = xpToNextLevel(progress.level) - progress.xp;
-            if (remaining >= needed) {
-              remaining -= needed;
-              progress.level += 1;
-              progress.xp = 0;
-              levelUps += 1;
-            } else {
-              progress.xp += remaining;
-              remaining = 0;
-            }
-          }
-
-          if (progress.level >= MAX_NODE_LEVEL) {
-            progress.xp = getXpCap(progress.level);
-          }
-
-          syncUnlockState();
-          return levelUps;
-        }
-
-        function completeTask(taskId) {
-          const task = tasks.find((item) => item.id === taskId);
-          if (!task) return;
-
-          const progress = state.nodeProgress[task.nodeId];
-          if (!progress.unlocked) {
-            showToast('该节点尚未解锁，先升级父节点到 Lv2。');
-            return;
-          }
-
-          const today = getDateKey();
-          const done = state.taskLogs.some(
-            (log) => log.kind === 'task' && log.taskId === taskId && log.date === today,
-          );
-          if (done) {
-            showToast('这个任务今天已经完成过了。');
-            return;
-          }
-
-          const meta = difficultyMap[task.difficulty];
-          const xp = meta.xp;
-          const streakInfo = updateStreak(today);
-          const levelUps = awardXp(task.nodeId, xp);
-
-          state.taskLogs.unshift({
-            id: makeId(),
-            kind: 'task',
-            date: today,
-            taskId,
-            nodeId: task.nodeId,
-            xp,
-            title: task.title,
-          });
-
-          if (streakInfo.bonus > 0) {
-            awardXp(task.nodeId, streakInfo.bonus);
-            state.taskLogs.unshift({
-              id: makeId(),
-              kind: 'bonus',
-              date: today,
-              taskId: 'streak-bonus',
-              nodeId: task.nodeId,
-              xp: streakInfo.bonus,
-              title: '连续 7 天奖励',
-            });
-          }
-
-          state.taskLogs = state.taskLogs.slice(0, 400);
-          saveState();
-          renderAll();
-
-          const msg = [
-            `完成任务 +${xp} XP`,
-            levelUps > 0 ? `节点升级 +${levelUps}` : '',
-            streakInfo.bonus ? `连击奖励 +${streakInfo.bonus} XP` : '',
-          ]
-            .filter(Boolean)
-            .join(' ｜ ');
-          showToast(msg);
-        }
-
-        function updateStreak(today) {
-          if (state.lastCheckinDate === today) return { bonus: 0 };
-
-          if (!state.lastCheckinDate) {
-            state.streak = 1;
-          } else {
-            const diffDays = dateDistance(state.lastCheckinDate, today);
-            state.streak = diffDays === 1 ? state.streak + 1 : 1;
-          }
-          state.lastCheckinDate = today;
-
-          const bonus = state.streak > 0 && state.streak % 7 === 0 ? 80 : 0;
-          return { bonus };
-        }
-
-        function setSelectedNode(nodeId) {
-          state.selectedNodeId = nodeId;
-          saveState();
-          renderAll();
-        }
-
-        function saveReflection() {
-          const text = refs.reflectionInput.value.trim();
-          if (!text) {
-            showToast('先写一句今天的复盘。');
-            return;
-          }
-
-          state.reflections.unshift({
-            id: makeId(),
-            date: getDateKey(),
-            text,
-          });
-          state.reflections = state.reflections.slice(0, 40);
-          refs.reflectionInput.value = '';
-          saveState();
-          renderReflections();
-          showToast('复盘已保存。');
-        }
-
-        function clearData() {
-          const ok = window.confirm('确认清空全部能力树数据吗？这个操作不可撤销。');
-          if (!ok) return;
-          localStorage.removeItem(STORAGE_KEY);
-          state = createInitialState();
-          renderAll();
-          showToast('已重置为初始状态。');
-        }
-
-        function renderAll() {
-          renderStats();
-          renderTree();
-          renderTasks();
-          renderWeeklyReport();
-          renderReflections();
-        }
-
-        function renderStats() {
-          const today = getDateKey();
-          const todayXp = state.taskLogs
-            .filter((log) => log.date === today)
-            .reduce((sum, log) => sum + (log.xp || 0), 0);
-          const weekXp = state.taskLogs
-            .filter((log) => withinDays(log.date, 7))
-            .reduce((sum, log) => sum + (log.xp || 0), 0);
-
-          refs.statAccountLevel.textContent = `Lv.${1 + Math.floor(state.totalXp / 180)}`;
-          refs.statStreak.textContent = String(state.streak);
-          refs.statTodayXp.textContent = String(todayXp);
-          refs.statWeekXp.textContent = String(weekXp);
-        }
-
-        function renderTree() {
-          refs.treeGrid.innerHTML = '';
-
-          for (const node of nodes) {
-            const progress = state.nodeProgress[node.id];
-            const isSelected = state.selectedNodeId === node.id;
-            const cap = getXpCap(progress.level);
-            const currentXp = progress.level >= MAX_NODE_LEVEL ? cap : progress.xp;
-            const progressPct = Math.round((currentXp / cap) * 100);
-            const parentName = node.parentId ? getNodeById(node.parentId).name : '';
-
-            const card = document.createElement('article');
-            card.className = [
-              'node-card',
-              progress.unlocked ? 'unlocked' : 'locked',
-              isSelected ? 'selected' : '',
-            ]
-              .filter(Boolean)
-              .join(' ');
-            card.style.gridColumn = String(node.col);
-            card.style.gridRow = String(node.row);
-            card.dataset.nodeId = node.id;
-
-            card.innerHTML = `
-              <div class="node-head">
-                <p class="node-name">${escapeHtml(node.name)}</p>
-                <span class="level-badge">Lv.${progress.level}</span>
-              </div>
-              <p class="node-desc">${escapeHtml(node.desc)}</p>
-              <div class="xp-track"><span style="width:${progressPct}%"></span></div>
-              <div class="node-meta">${
-                progress.level >= MAX_NODE_LEVEL
-                  ? '已达到节点满级'
-                  : `XP ${currentXp} / ${cap}`
-              }</div>
-              <div class="node-actions">
-                <button class="btn-plain" data-action="select" data-node="${node.id}" ${
-                  !progress.unlocked ? 'disabled' : ''
-                }>
-                  ${isSelected ? '当前节点' : '切换到此节点'}
-                </button>
-              </div>
-              ${
-                !progress.unlocked && parentName
-                  ? `<div class="node-meta">解锁条件：${escapeHtml(parentName)} 达到 Lv2</div>`
-                  : ''
-              }
-            `;
-            refs.treeGrid.appendChild(card);
-          }
-
-          refs.treeGrid.querySelectorAll('[data-action="select"]').forEach((btn) => {
-            btn.addEventListener('click', () => setSelectedNode(btn.dataset.node));
-          });
-
-          requestAnimationFrame(drawTreeLines);
-        }
-
-        function drawTreeLines() {
-          const wrapRect = refs.treeGrid.getBoundingClientRect();
-          const width = Math.max(1, wrapRect.width);
-          const height = Math.max(1, wrapRect.height);
-
-          refs.treeLines.setAttribute('width', width);
-          refs.treeLines.setAttribute('height', height);
-          refs.treeLines.setAttribute('viewBox', `0 0 ${width} ${height}`);
-          refs.treeLines.innerHTML = '';
-
-          for (const node of nodes) {
-            if (!node.parentId) continue;
-            const fromEl = refs.treeGrid.querySelector(`[data-node-id="${node.parentId}"]`);
-            const toEl = refs.treeGrid.querySelector(`[data-node-id="${node.id}"]`);
-            if (!fromEl || !toEl) continue;
-
-            const a = fromEl.getBoundingClientRect();
-            const b = toEl.getBoundingClientRect();
-            const startX = a.left - wrapRect.left + a.width / 2;
-            const startY = a.top - wrapRect.top + a.height;
-            const endX = b.left - wrapRect.left + b.width / 2;
-            const endY = b.top - wrapRect.top;
-            const c1Y = startY + (endY - startY) * 0.4;
-            const c2Y = endY - (endY - startY) * 0.4;
-
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', `M ${startX} ${startY} C ${startX} ${c1Y}, ${endX} ${c2Y}, ${endX} ${endY}`);
-            path.setAttribute('stroke', 'rgba(15, 118, 110, 0.34)');
-            path.setAttribute('stroke-width', '2');
-            path.setAttribute('fill', 'none');
-            refs.treeLines.appendChild(path);
-          }
-        }
-
-        function renderTasks() {
-          const selected = getNodeById(state.selectedNodeId);
-          const selectedProgress = state.nodeProgress[selected.id];
-          refs.taskPanelTitle.textContent = `${selected.name} · 可执行任务`;
-          refs.taskPanelHint.textContent = selectedProgress.unlocked
-            ? '同一任务每天只计分一次，优先完成最小动作。'
-            : '节点尚未解锁，请先升级父节点。';
-
-          const nodeTasks = tasks.filter((task) => task.nodeId === selected.id);
-          const today = getDateKey();
-
-          refs.taskList.innerHTML = '';
-          for (const task of nodeTasks) {
-            const meta = difficultyMap[task.difficulty];
-            const doneToday = state.taskLogs.some(
-              (log) => log.kind === 'task' && log.taskId === task.id && log.date === today,
-            );
-            const disabled = !selectedProgress.unlocked || doneToday;
-
-            const item = document.createElement('article');
-            item.className = 'task-item';
-            item.innerHTML = `
-              <p class="task-title">${escapeHtml(task.title)}</p>
-              <div class="task-meta">
-                <span class="tag ${meta.className}">${meta.label}</span>
-                <span>奖励 +${meta.xp} XP</span>
-              </div>
-              <div>
-                <button class="${doneToday ? 'btn-plain' : 'btn-main'}" data-action="complete" data-task="${
-                  task.id
-                }" ${disabled ? 'disabled' : ''}>
-                  ${doneToday ? '今日已完成' : '完成任务'}
-                </button>
-              </div>
-            `;
-            refs.taskList.appendChild(item);
-          }
-
-          refs.taskList.querySelectorAll('[data-action="complete"]').forEach((btn) => {
-            btn.addEventListener('click', () => completeTask(btn.dataset.task));
-          });
-        }
-
-        function renderWeeklyReport() {
-          const weekLogs = state.taskLogs.filter((log) => withinDays(log.date, 7));
-          const xpByNode = {};
-          for (const node of nodes) xpByNode[node.id] = 0;
-          for (const log of weekLogs) xpByNode[log.nodeId] = (xpByNode[log.nodeId] || 0) + (log.xp || 0);
-
-          const sorted = Object.entries(xpByNode).sort((a, b) => b[1] - a[1]).filter((item) => item[1] > 0);
-          const topA = sorted[0];
-          const topB = sorted[1];
-          const weekXp = weekLogs.reduce((sum, log) => sum + (log.xp || 0), 0);
-          const finishedCount = weekLogs.filter((log) => log.kind === 'task').length;
-
-          const streakMod = state.streak % 7;
-          const daysToBonus = state.streak === 0 ? 7 : streakMod === 0 ? 7 : 7 - streakMod;
-          const lines = [
-            `本周累计获得 <strong>${weekXp}</strong> XP，完成任务 <strong>${finishedCount}</strong> 次。`,
-            topA
-              ? `进步最多：<strong>${getNodeById(topA[0]).name}</strong>（+${topA[1]} XP）。`
-              : '本周还没有任务记录，先完成一个最小动作。',
-            topB ? `第二增长：<strong>${getNodeById(topB[0]).name}</strong>（+${topB[1]} XP）。` : '保持节奏，争取点亮第二个核心节点。',
-            `当前连续进步 <strong>${state.streak}</strong> 天。下一次 7 天奖励还差 <strong>${daysToBonus}</strong> 天。`,
-          ];
-
-          refs.weeklyReportList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
-        }
-
-        function renderReflections() {
-          const recent = state.reflections.slice(0, 8);
-          if (!recent.length) {
-            refs.reflectionHistory.innerHTML = '<li><span class="muted">暂无复盘记录。</span></li>';
-            return;
-          }
-
-          refs.reflectionHistory.innerHTML = recent
-            .map(
-              (item) => `
-                <li>
-                  <strong>${escapeHtml(item.date)}</strong>
-                  <span>${escapeHtml(item.text)}</span>
-                </li>
-              `,
-            )
-            .join('');
-        }
-
-        function getNodeById(nodeId) {
-          return nodes.find((node) => node.id === nodeId);
-        }
-
-        function getDateKey(date = new Date()) {
-          const y = date.getFullYear();
-          const m = String(date.getMonth() + 1).padStart(2, '0');
-          const d = String(date.getDate()).padStart(2, '0');
-          return `${y}-${m}-${d}`;
-        }
-
-        function withinDays(dateKey, days) {
-          const diff = dateDistance(dateKey, getDateKey());
-          return diff >= 0 && diff < days;
-        }
-
-        function dateDistance(fromKey, toKey) {
-          const from = new Date(`${fromKey}T00:00:00`);
-          const to = new Date(`${toKey}T00:00:00`);
-          return Math.round((to - from) / DAY_MS);
-        }
-
-        function clampInt(value, min, max) {
-          const n = Number(value);
-          if (!Number.isFinite(n)) return min;
-          return Math.min(max, Math.max(min, Math.round(n)));
-        }
-
-        function makeId() {
-          if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-            return crypto.randomUUID();
-          }
-          return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        }
-
-        function escapeHtml(text) {
-          return String(text)
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;')
-            .replaceAll("'", '&#39;');
-        }
-
-        function showToast(message) {
-          refs.toast.textContent = message;
-          refs.toast.classList.add('show');
-          clearTimeout(showToast.timer);
-          showToast.timer = setTimeout(() => {
-            refs.toast.classList.remove('show');
-          }, 1800);
-        }
-
-        function debounce(fn, delay) {
-          let timer = null;
-          return (...args) => {
-            clearTimeout(timer);
-            timer = setTimeout(() => fn(...args), delay);
-          };
-        }
-      })();
-    </script>
+    <div id="onboardingModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+      <div class="modal-card">
+        <h2 id="onboardingTitle">30 秒上手</h2>
+        <ol>
+          <li>先完成一条「今日任务」。</li>
+          <li>查看节点 XP 进度条变化。</li>
+          <li>写一句复盘，形成闭环。</li>
+        </ol>
+        <div class="small-actions">
+          <button id="startOnboardingBtn" class="btn-main">开始上手</button>
+          <button id="skipOnboardingBtn" class="btn-plain">先跳过</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./scripts/app.js"></script>
   </body>
 </html>
