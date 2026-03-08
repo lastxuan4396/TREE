@@ -5,6 +5,7 @@ import {
   awardXp,
   clampInt,
   dateDistance,
+  detectCompletionAnomaly,
   getDateKey,
   getXpCap,
   syncUnlockState,
@@ -12,10 +13,14 @@ import {
 } from './core.js';
 
 const STORAGE_KEY = 'ability-tree-upgrade-v2';
+const REMEMBERED_TOKEN_KEY = 'tree-cloud-token-v1';
 const MAX_TASK_LOGS = 800;
 const MAX_REFLECTIONS = 80;
 const MAX_EVENTS = 600;
 const MAX_VISITS = 120;
+const MIN_TASK_INTERVAL_MS = 4000;
+const MAX_TASKS_PER_MINUTE = 6;
+const MAX_TASKS_PER_DAY = 40;
 
 const difficultyMap = {
   easy: { label: '简单', xp: 10, className: 'easy' },
@@ -47,6 +52,7 @@ const refs = {
   reminderToggle: document.getElementById('reminderToggle'),
   reminderTime: document.getElementById('reminderTime'),
   testReminderBtn: document.getElementById('testReminderBtn'),
+  addCalendarBtn: document.getElementById('addCalendarBtn'),
   generateShareBtn: document.getElementById('generateShareBtn'),
   downloadShareBtn: document.getElementById('downloadShareBtn'),
   sharePreview: document.getElementById('sharePreview'),
@@ -61,6 +67,11 @@ const refs = {
   exportDataBtn: document.getElementById('exportDataBtn'),
   importDataBtn: document.getElementById('importDataBtn'),
   importFileInput: document.getElementById('importFileInput'),
+  cloudTokenInput: document.getElementById('cloudTokenInput'),
+  cloudGistIdInput: document.getElementById('cloudGistIdInput'),
+  rememberTokenToggle: document.getElementById('rememberTokenToggle'),
+  cloudUploadBtn: document.getElementById('cloudUploadBtn'),
+  cloudDownloadBtn: document.getElementById('cloudDownloadBtn'),
   analyticsList: document.getElementById('analyticsList'),
   onboardingModal: document.getElementById('onboardingModal'),
   startOnboardingBtn: document.getElementById('startOnboardingBtn'),
@@ -78,7 +89,9 @@ renderAll();
 checkReminder();
 setInterval(() => checkReminder(), 60 * 1000);
 if (!state.meta.seenOnboarding) {
+  trackEvent('onboarding_start');
   refs.onboardingModal.classList.remove('hidden');
+  refs.startOnboardingBtn.focus();
 }
 
 function defaultNodes() {
@@ -127,7 +140,7 @@ function createInitialState() {
   }
 
   return {
-    version: 2,
+    version: 3,
     selectedNodeId: nodes[0].id,
     totalXp: 0,
     streak: 0,
@@ -141,9 +154,11 @@ function createInitialState() {
       firstVisitDate: '',
       visits: [],
       seenOnboarding: false,
+      firstTaskCompleted: false,
       reminderEnabled: false,
       reminderTime: '20:30',
       lastReminderDate: '',
+      cloudGistId: '',
     },
     analytics: {
       events: [],
@@ -201,9 +216,11 @@ function mergeState(source) {
       firstVisitDate: typeof source.meta.firstVisitDate === 'string' ? source.meta.firstVisitDate : base.meta.firstVisitDate,
       visits: Array.isArray(source.meta.visits) ? source.meta.visits.filter((v) => typeof v === 'string').slice(0, MAX_VISITS) : base.meta.visits,
       seenOnboarding: Boolean(source.meta.seenOnboarding),
+      firstTaskCompleted: Boolean(source.meta.firstTaskCompleted),
       reminderEnabled: Boolean(source.meta.reminderEnabled),
       reminderTime: typeof source.meta.reminderTime === 'string' ? source.meta.reminderTime : base.meta.reminderTime,
       lastReminderDate: typeof source.meta.lastReminderDate === 'string' ? source.meta.lastReminderDate : '',
+      cloudGistId: typeof source.meta.cloudGistId === 'string' ? source.meta.cloudGistId : '',
     };
   }
 
@@ -291,6 +308,8 @@ function registerPageOpen() {
 }
 
 function bindEvents() {
+  hydrateCloudInputs();
+
   refs.saveReflectionBtn.addEventListener('click', saveReflection);
   refs.clearDataBtn.addEventListener('click', clearData);
   refs.completeDailyBtn.addEventListener('click', () => {
@@ -326,6 +345,7 @@ function bindEvents() {
     sendReminder('这是一次测试提醒：今天先完成一个最小动作。');
     trackEvent('reminder_test');
   });
+  refs.addCalendarBtn.addEventListener('click', downloadReminderICS);
 
   refs.generateShareBtn.addEventListener('click', async () => {
     await generateShareImage();
@@ -337,6 +357,14 @@ function bindEvents() {
   refs.exportDataBtn.addEventListener('click', exportData);
   refs.importDataBtn.addEventListener('click', () => refs.importFileInput.click());
   refs.importFileInput.addEventListener('change', importData);
+  refs.cloudUploadBtn.addEventListener('click', uploadCloudBackup);
+  refs.cloudDownloadBtn.addEventListener('click', downloadCloudBackup);
+  refs.rememberTokenToggle.addEventListener('change', syncRememberedTokenState);
+  refs.cloudTokenInput.addEventListener('blur', syncRememberedTokenState);
+  refs.cloudGistIdInput.addEventListener('change', () => {
+    state.meta.cloudGistId = refs.cloudGistIdInput.value.trim();
+    saveState();
+  });
 
   refs.startOnboardingBtn.addEventListener('click', () => {
     state.meta.seenOnboarding = true;
@@ -345,7 +373,7 @@ function bindEvents() {
     if (daily?.task) {
       setSelectedNode(daily.task.nodeId);
     }
-    trackEvent('onboarding_complete');
+    trackEvent('onboarding_finish');
     saveState();
     showToast('先完成今日任务，30 秒就能看到进步。');
   });
@@ -355,6 +383,15 @@ function bindEvents() {
     refs.onboardingModal.classList.add('hidden');
     trackEvent('onboarding_skip');
     saveState();
+  });
+
+  refs.onboardingModal.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      refs.onboardingModal.classList.add('hidden');
+      state.meta.seenOnboarding = true;
+      trackEvent('onboarding_skip');
+      saveState();
+    }
   });
 
   window.addEventListener('resize', debounce(drawTreeLines, 120));
@@ -398,6 +435,19 @@ function completeTask(taskId, source = 'task_list') {
     return;
   }
 
+  const nowIso = new Date().toISOString();
+  const anomaly = detectCompletionAnomaly(state.taskLogs, nowIso, today, {
+    minTaskIntervalMs: MIN_TASK_INTERVAL_MS,
+    maxTasksPerMinute: MAX_TASKS_PER_MINUTE,
+    maxTasksPerDay: MAX_TASKS_PER_DAY,
+  });
+  if (anomaly.blocked) {
+    trackEvent('suspicious_block', { reason: anomaly.reason, source });
+    saveState();
+    showToast(`已拦截异常操作：${anomaly.reason}`);
+    return;
+  }
+
   const taskXp = difficultyMap[task.difficulty].xp;
   const streak = updateStreak(state.lastCheckinDate, state.streak, today);
   state.streak = streak.streak;
@@ -412,6 +462,7 @@ function completeTask(taskId, source = 'task_list') {
     nodeId: task.nodeId,
     xp: taskXp,
     title: task.title,
+    completedAt: nowIso,
   });
 
   if (streak.bonus > 0) {
@@ -430,6 +481,10 @@ function completeTask(taskId, source = 'task_list') {
 
   state.taskLogs = state.taskLogs.slice(0, MAX_TASK_LOGS);
   trackEvent('complete_task', { taskId, nodeId: task.nodeId, source });
+  if (!state.meta.firstTaskCompleted) {
+    state.meta.firstTaskCompleted = true;
+    trackEvent('first_task_complete', { taskId, nodeId: task.nodeId });
+  }
   if (levelUps > 0) {
     trackEvent('level_up', { nodeId: task.nodeId, count: levelUps });
   }
@@ -466,6 +521,8 @@ function clearData() {
   saveState();
   renderAll();
   refs.onboardingModal.classList.remove('hidden');
+  trackEvent('onboarding_start');
+  refs.startOnboardingBtn.focus();
   showToast('已恢复到初始状态。');
 }
 
@@ -520,16 +577,99 @@ function renderStats() {
   refs.statWeekXp.textContent = String(weekXp);
 }
 
+function computeNodeLayout(nodes) {
+  const children = new Map();
+  const nodeMap = new Map();
+  const depths = {};
+
+  for (const node of nodes) {
+    nodeMap.set(node.id, node);
+    children.set(node.id, []);
+  }
+  for (const node of nodes) {
+    if (node.parentId && children.has(node.parentId)) {
+      children.get(node.parentId).push(node.id);
+    }
+  }
+
+  const roots = nodes
+    .filter((node) => !node.parentId || !nodeMap.has(node.parentId))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+
+  const queue = roots.map((node) => ({ id: node.id, depth: 1 }));
+  while (queue.length) {
+    const { id, depth } = queue.shift();
+    if (depths[id] && depths[id] <= depth) continue;
+    depths[id] = depth;
+    const next = children.get(id) || [];
+    next.sort((a, b) => (nodeMap.get(a)?.name || '').localeCompare(nodeMap.get(b)?.name || '', 'zh-CN'));
+    for (const childId of next) {
+      queue.push({ id: childId, depth: depth + 1 });
+    }
+  }
+
+  for (const node of nodes) {
+    if (!depths[node.id]) depths[node.id] = 1;
+  }
+
+  const layers = {};
+  for (const node of nodes) {
+    const row = depths[node.id];
+    if (!layers[row]) layers[row] = [];
+    layers[row].push(node);
+  }
+
+  const layerRows = Object.keys(layers)
+    .map((v) => Number(v))
+    .sort((a, b) => a - b);
+
+  let maxCols = 3;
+  for (const row of layerRows) {
+    maxCols = Math.max(maxCols, layers[row].length);
+  }
+
+  const positions = {};
+  for (const row of layerRows) {
+    const layer = layers[row];
+    const used = new Set();
+    layer.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+
+    layer.forEach((node, index) => {
+      const suggested = Math.round(((index + 1) * (maxCols + 1)) / (layer.length + 1));
+      let col = Math.min(maxCols, Math.max(1, suggested));
+      while (used.has(col) && col <= maxCols) col += 1;
+      while (used.has(col) && col > 1) col -= 1;
+      used.add(col);
+      positions[node.id] = { row, col };
+    });
+  }
+
+  const orderedNodes = [...nodes].sort((a, b) => {
+    const pa = positions[a.id] || { row: 1, col: 1 };
+    const pb = positions[b.id] || { row: 1, col: 1 };
+    return pa.row - pb.row || pa.col - pb.col || a.name.localeCompare(b.name, 'zh-CN');
+  });
+
+  return {
+    positions,
+    orderedNodes,
+    maxCols,
+    maxRows: Math.max(5, ...layerRows),
+  };
+}
+
 function renderTree() {
   const existingSvg = refs.treeLines;
   refs.treeGrid.innerHTML = '';
   refs.treeGrid.appendChild(existingSvg);
 
-  const maxRow = Math.max(5, ...state.nodes.map((node) => node.row));
-  refs.treeGrid.style.gridTemplateRows = `repeat(${maxRow}, minmax(84px, auto))`;
+  const layout = computeNodeLayout(state.nodes);
+  refs.treeGrid.style.setProperty('--grid-cols', String(layout.maxCols));
+  refs.treeGrid.style.gridTemplateRows = `repeat(${layout.maxRows}, minmax(84px, auto))`;
 
-  for (const node of state.nodes) {
-    const progress = state.nodeProgress[node.id];
+  for (const node of layout.orderedNodes) {
+    const pos = layout.positions[node.id];
+    const progress = state.nodeProgress[node.id] || { level: 1, xp: 0, unlocked: false };
     const isSelected = state.selectedNodeId === node.id;
     const cap = getXpCap(progress.level);
     const currentXp = progress.level >= MAX_NODE_LEVEL ? cap : progress.xp;
@@ -540,9 +680,11 @@ function renderTree() {
     card.className = ['node-card', progress.unlocked ? 'unlocked' : 'locked', isSelected ? 'selected' : '']
       .filter(Boolean)
       .join(' ');
-    card.style.gridColumn = String(node.col);
-    card.style.gridRow = String(node.row);
+    card.style.gridColumn = String(pos.col);
+    card.style.gridRow = String(pos.row);
     card.dataset.nodeId = node.id;
+    card.tabIndex = progress.unlocked ? 0 : -1;
+    card.setAttribute('aria-label', `${node.name}，等级 ${progress.level}，${progress.unlocked ? '已解锁' : '未解锁'}`);
 
     card.innerHTML = `
       <div class="node-head">
@@ -556,7 +698,9 @@ function renderTree() {
       }</div>
       <button class="btn-plain" data-action="select" data-node="${node.id}" ${
         !progress.unlocked ? 'disabled' : ''
-      }>${isSelected ? '当前节点' : '切换节点'}</button>
+      } aria-pressed="${isSelected ? 'true' : 'false'}" aria-label="切换到${escapeHtml(node.name)}节点">${
+        isSelected ? '当前节点' : '切换节点'
+      }</button>
       ${
         !progress.unlocked && parentName
           ? `<div class="node-meta">解锁条件：${escapeHtml(parentName)} 达到 Lv2</div>`
@@ -569,11 +713,20 @@ function renderTree() {
   refs.treeGrid.querySelectorAll('[data-action="select"]').forEach((btn) => {
     btn.addEventListener('click', () => setSelectedNode(btn.dataset.node));
   });
+  refs.treeGrid.querySelectorAll('.node-card').forEach((card) => {
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        const id = card.dataset.nodeId;
+        if (id && state.nodeProgress[id]?.unlocked) setSelectedNode(id);
+      }
+    });
+  });
 
-  requestAnimationFrame(drawTreeLines);
+  requestAnimationFrame(() => drawTreeLines(layout.positions));
 }
 
-function drawTreeLines() {
+function drawTreeLines(positionMap = null) {
   const wrapRect = refs.treeGrid.getBoundingClientRect();
   const width = Math.max(1, wrapRect.width);
   const height = Math.max(1, wrapRect.height);
@@ -585,6 +738,7 @@ function drawTreeLines() {
 
   for (const node of state.nodes) {
     if (!node.parentId) continue;
+    if (positionMap && (!positionMap[node.id] || !positionMap[node.parentId])) continue;
     const fromEl = refs.treeGrid.querySelector(`[data-node-id="${node.parentId}"]`);
     const toEl = refs.treeGrid.querySelector(`[data-node-id="${node.id}"]`);
     if (!fromEl || !toEl) continue;
@@ -837,7 +991,12 @@ function renderReflections() {
 }
 
 function renderNodeSelectors() {
-  const nodes = [...state.nodes].sort((a, b) => a.row - b.row || a.col - b.col);
+  const layout = computeNodeLayout(state.nodes);
+  const nodes = [...state.nodes].sort((a, b) => {
+    const pa = layout.positions[a.id] || { row: 1, col: 1 };
+    const pb = layout.positions[b.id] || { row: 1, col: 1 };
+    return pa.row - pb.row || pa.col - pb.col || a.name.localeCompare(b.name, 'zh-CN');
+  });
 
   const parentOld = refs.newNodeParent.value;
   refs.newNodeParent.innerHTML = `<option value="">无（新根节点）</option>${nodes
@@ -859,6 +1018,7 @@ function renderNodeSelectors() {
 
   refs.reminderToggle.checked = state.meta.reminderEnabled;
   refs.reminderTime.value = state.meta.reminderTime || '20:30';
+  refs.cloudGistIdInput.value = state.meta.cloudGistId || '';
 }
 
 function addCustomNode() {
@@ -870,17 +1030,9 @@ function addCustomNode() {
 
   const desc = refs.newNodeDesc.value.trim() || '自定义能力节点';
   const parentId = refs.newNodeParent.value || null;
-  const parentNode = parentId ? getNodeById(parentId) : null;
-  const row = parentNode ? parentNode.row + 1 : Math.max(...state.nodes.map((n) => n.row), 1) + 1;
-
-  const counts = { 1: 0, 2: 0, 3: 0 };
-  for (const node of state.nodes) {
-    if (node.row === row) counts[node.col] += 1;
-  }
-  const col = [1, 2, 3].sort((a, b) => counts[a] - counts[b])[0];
 
   const id = makeId('node');
-  state.nodes.push({ id, name: name.slice(0, 18), desc: desc.slice(0, 50), parentId, row, col, custom: true });
+  state.nodes.push({ id, name: name.slice(0, 18), desc: desc.slice(0, 50), parentId, row: 1, col: 1, custom: true });
   state.nodeProgress[id] = { level: 1, xp: 0, unlocked: !parentId };
   state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
   state.selectedNodeId = id;
@@ -925,11 +1077,7 @@ function addCustomTask() {
 }
 
 function exportData() {
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    version: state.version,
-    state,
-  };
+  const payload = buildBackupPayload();
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -963,21 +1111,197 @@ async function importData() {
   }
 }
 
+function hydrateCloudInputs() {
+  const rememberedToken = localStorage.getItem(REMEMBERED_TOKEN_KEY) || '';
+  refs.cloudTokenInput.value = rememberedToken;
+  refs.rememberTokenToggle.checked = Boolean(rememberedToken);
+  refs.cloudGistIdInput.value = state.meta.cloudGistId || '';
+}
+
+function syncRememberedTokenState() {
+  const token = refs.cloudTokenInput.value.trim();
+  if (refs.rememberTokenToggle.checked && token) {
+    localStorage.setItem(REMEMBERED_TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(REMEMBERED_TOKEN_KEY);
+  }
+}
+
+function buildBackupPayload() {
+  return {
+    exportedAt: new Date().toISOString(),
+    version: state.version,
+    state,
+  };
+}
+
+async function uploadCloudBackup() {
+  const token = refs.cloudTokenInput.value.trim();
+  if (!token) {
+    showToast('请先输入 GitHub Token。');
+    return;
+  }
+
+  const gistId = refs.cloudGistIdInput.value.trim();
+  const payload = {
+    description: 'TREE cloud backup',
+    public: false,
+    files: {
+      'tree-backup.json': {
+        content: JSON.stringify(buildBackupPayload(), null, 2),
+      },
+    },
+  };
+
+  const url = gistId ? `https://api.github.com/gists/${encodeURIComponent(gistId)}` : 'https://api.github.com/gists';
+  const method = gistId ? 'PATCH' : 'POST';
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API ${res.status}`);
+    }
+    const data = await res.json();
+    const nextGistId = data.id || gistId;
+    state.meta.cloudGistId = nextGistId;
+    refs.cloudGistIdInput.value = nextGistId;
+    syncRememberedTokenState();
+    trackEvent('cloud_upload', { gistId: nextGistId, created: !gistId });
+    saveState();
+    showToast('云端备份成功。');
+  } catch (error) {
+    showToast(`云端备份失败：${error.message}`);
+  }
+}
+
+async function downloadCloudBackup() {
+  const gistId = refs.cloudGistIdInput.value.trim() || state.meta.cloudGistId;
+  if (!gistId) {
+    showToast('请先填写 Gist ID。');
+    return;
+  }
+
+  const token = refs.cloudTokenInput.value.trim();
+  try {
+    const res = await fetch(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API ${res.status}`);
+    }
+    const data = await res.json();
+    const file = data.files?.['tree-backup.json'];
+    if (!file) {
+      throw new Error('未找到 tree-backup.json');
+    }
+
+    const content = typeof file.content === 'string' ? file.content : await fetch(file.raw_url).then((r) => r.text());
+    const parsed = JSON.parse(content);
+
+    state = mergeState(parsed.state || parsed);
+    state.meta.cloudGistId = gistId;
+    state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
+    ensureSelectedNode();
+    syncRememberedTokenState();
+    trackEvent('cloud_download', { gistId });
+    saveState();
+    renderAll();
+    showToast('已从云端恢复数据。');
+  } catch (error) {
+    showToast(`云端恢复失败：${error.message}`);
+  }
+}
+
+function downloadReminderICS() {
+  const timeText = refs.reminderTime.value || '20:30';
+  const [h, m] = timeText.split(':').map((v) => Number(v));
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(h, m, 0, 0);
+  if (start <= now) start.setDate(start.getDate() + 1);
+  const end = new Date(start);
+  end.setMinutes(end.getMinutes() + 10);
+
+  const content = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//TREE//Daily Reminder//CN',
+    'BEGIN:VEVENT',
+    `UID:${makeId('ics')}@tree`,
+    `DTSTAMP:${toICSDate(new Date())}`,
+    `DTSTART:${toICSDate(start)}`,
+    `DTEND:${toICSDate(end)}`,
+    'RRULE:FREQ=DAILY',
+    'SUMMARY:TREE 今日任务提醒',
+    'DESCRIPTION:先完成一个最小动作，然后回到 TREE 记录进度。',
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    'DESCRIPTION:TREE 今日任务提醒',
+    'TRIGGER:-PT10M',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tree-daily-reminder-${timeText.replace(':', '')}.ics`;
+  a.click();
+  URL.revokeObjectURL(url);
+  trackEvent('calendar_reminder_export', { time: timeText });
+  saveState();
+  showToast('已生成日历提醒文件。');
+}
+
+function toICSDate(date) {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  const hh = String(date.getUTCHours()).padStart(2, '0');
+  const mm = String(date.getUTCMinutes()).padStart(2, '0');
+  const ss = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${y}${m}${d}T${hh}${mm}${ss}Z`;
+}
+
 function renderAnalytics() {
   const events = state.analytics.events;
   const openCount = events.filter((e) => e.type === 'page_open').length;
   const completeCount = events.filter((e) => e.type === 'complete_task').length;
   const levelUpCount = events.filter((e) => e.type === 'level_up').length;
+  const onboardingStart = events.filter((e) => e.type === 'onboarding_start').length;
+  const onboardingFinish = events.filter((e) => e.type === 'onboarding_finish').length;
+  const firstTask = events.filter((e) => e.type === 'first_task_complete').length;
+  const suspiciousBlocked = events.filter((e) => e.type === 'suspicious_block').length;
 
   const d1 = calculateRetention(state.meta.visits, 1);
   const d7 = calculateRetention(state.meta.visits, 7);
+  const onboardingRate = onboardingStart === 0 ? 0 : Math.round((onboardingFinish / onboardingStart) * 100);
+  const activationRate = onboardingFinish === 0 ? 0 : Math.round((firstTask / onboardingFinish) * 100);
 
   const lines = [
     `页面打开：<strong>${openCount}</strong> 次`,
     `完成任务：<strong>${completeCount}</strong> 次`,
     `触发升级：<strong>${levelUpCount}</strong> 次`,
+    `新手漏斗：开始 <strong>${onboardingStart}</strong> / 完成 <strong>${onboardingFinish}</strong>（完成率 ${onboardingRate}%）`,
+    `激活率：首个任务完成 <strong>${firstTask}</strong>（相对已完成引导 ${activationRate}%）`,
     `D1 留存：<strong>${d1.rate}%</strong>（${d1.retained}/${d1.eligible}）`,
     `D7 留存：<strong>${d7.rate}%</strong>（${d7.retained}/${d7.eligible}）`,
+    `异常拦截：<strong>${suspiciousBlocked}</strong> 次`,
   ];
   refs.analyticsList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
 }

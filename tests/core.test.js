@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { awardXp, syncUnlockState, updateStreak } from '../scripts/core.js';
+import { awardXp, detectCompletionAnomaly, syncUnlockState, updateStreak } from '../scripts/core.js';
 
 test('awardXp should level up and carry remaining xp', () => {
   const result = awardXp({ level: 1, xp: 130 }, 20);
@@ -37,4 +37,30 @@ test('updateStreak should grant bonus on 7th day and reset after gap', () => {
   const reset = updateStreak('2026-03-05', 7, '2026-03-08');
   assert.equal(reset.streak, 1);
   assert.equal(reset.bonus, 0);
+});
+
+test('detectCompletionAnomaly should block high-frequency task completion', () => {
+  const now = '2026-03-08T12:00:00.000Z';
+  const logs = [
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:59:58.000Z' },
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:59:50.000Z' },
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:59:40.000Z' },
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:59:30.000Z' },
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:59:20.000Z' },
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:59:10.000Z' },
+  ];
+
+  const result = detectCompletionAnomaly(logs, now, '2026-03-08');
+  assert.equal(result.blocked, true);
+});
+
+test('detectCompletionAnomaly should pass normal completion pace', () => {
+  const now = '2026-03-08T12:00:00.000Z';
+  const logs = [
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:55:00.000Z' },
+    { kind: 'task', date: '2026-03-08', completedAt: '2026-03-08T11:45:00.000Z' },
+  ];
+
+  const result = detectCompletionAnomaly(logs, now, '2026-03-08');
+  assert.equal(result.blocked, false);
 });

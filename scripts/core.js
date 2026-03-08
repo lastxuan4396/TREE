@@ -2,6 +2,11 @@ export const MAX_NODE_LEVEL = 5;
 export const UNLOCK_LEVEL = 2;
 export const STREAK_BONUS_INTERVAL = 7;
 export const STREAK_BONUS_XP = 80;
+export const ANTI_CHEAT_DEFAULTS = {
+  minTaskIntervalMs: 4000,
+  maxTasksPerMinute: 6,
+  maxTasksPerDay: 40,
+};
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -119,4 +124,39 @@ export function clampInt(value, min, max) {
   const n = Number(value);
   if (!Number.isFinite(n)) return min;
   return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+export function detectCompletionAnomaly(taskLogs, nowIso, todayDateKey, options = {}) {
+  const nowMs = Date.parse(nowIso);
+  if (!Number.isFinite(nowMs)) {
+    return { blocked: true, reason: '时间戳无效' };
+  }
+
+  const config = {
+    ...ANTI_CHEAT_DEFAULTS,
+    ...options,
+  };
+
+  const tasks = Array.isArray(taskLogs) ? taskLogs.filter((log) => log && log.kind === 'task') : [];
+  const todayTasks = tasks.filter((log) => log.date === todayDateKey);
+  if (todayTasks.length >= config.maxTasksPerDay) {
+    return { blocked: true, reason: `今日任务次数超过 ${config.maxTasksPerDay} 次` };
+  }
+
+  const recentTasks = tasks.filter((log) => {
+    const ts = Date.parse(log.completedAt || `${log.date}T00:00:00`);
+    return Number.isFinite(ts) && nowMs - ts <= 60 * 1000;
+  });
+  if (recentTasks.length >= config.maxTasksPerMinute) {
+    return { blocked: true, reason: '1 分钟内任务过于频繁' };
+  }
+
+  if (tasks.length > 0) {
+    const latestTs = Date.parse(tasks[0].completedAt || `${tasks[0].date}T00:00:00`);
+    if (Number.isFinite(latestTs) && nowMs - latestTs < config.minTaskIntervalMs) {
+      return { blocked: true, reason: '两次任务间隔过短' };
+    }
+  }
+
+  return { blocked: false, reason: '' };
 }

@@ -60,7 +60,9 @@
               </label>
               <input id="reminderTime" type="time" value="20:30" />
               <button id="testReminderBtn" class="btn-plain">测试提醒</button>
+              <button id="addCalendarBtn" class="btn-plain">添加到日历</button>
             </div>
+            <p class="panel-note">可生成每天重复提醒到系统日历，关掉网页也会提醒。</p>
           </section>
 
           <section class="panel">
@@ -147,6 +149,29 @@
               <input id="importFileInput" type="file" accept="application/json" hidden />
             </div>
             <p class="panel-note">导入会覆盖当前本地数据，请先导出备份。</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">云同步（GitHub Gist）</h3>
+            <div class="form-grid">
+              <label class="full">
+                GitHub Token（需要 `gist` 权限）
+                <input id="cloudTokenInput" type="password" placeholder="ghp_xxx / gho_xxx" />
+              </label>
+              <label class="full">
+                Gist ID（首次可留空，上传后自动生成）
+                <input id="cloudGistIdInput" type="text" placeholder="例如：d9f9c...（32位）" />
+              </label>
+            </div>
+            <label class="inline-check">
+              <input id="rememberTokenToggle" type="checkbox" />
+              记住 Token（仅保存在当前浏览器）
+            </label>
+            <div class="small-actions">
+              <button id="cloudUploadBtn" class="btn-sub">上传到云端</button>
+              <button id="cloudDownloadBtn" class="btn-plain">从云端恢复</button>
+            </div>
+            <p class="panel-note">不同设备填写同一 Token + Gist ID 即可同步。</p>
           </section>
 
           <section class="panel">

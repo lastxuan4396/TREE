@@ -142,7 +142,7 @@ p {
   min-height: 500px;
   padding: 10px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(170px, 1fr));
+  grid-template-columns: repeat(var(--grid-cols, 3), minmax(170px, 1fr));
   gap: 12px;
 }
 
@@ -300,6 +300,16 @@ button,
   text-decoration: none;
 }
 
+button:focus-visible,
+.btn-link:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.node-card:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+
 button:hover,
 .btn-link:hover {
   transform: translateY(-1px);
@@ -355,13 +365,19 @@ hr {
 
 .reminder-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: 8px;
   align-items: center;
   font-size: 13px;
 }
 
-input,
+.reminder-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+input:not([type='checkbox']),
 select,
 textarea {
   width: 100%;
@@ -372,6 +388,12 @@ textarea {
   font-family: inherit;
   font-size: 13px;
   padding: 8px 10px;
+}
+
+input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #0f766e;
 }
 
 textarea {
@@ -392,6 +414,15 @@ textarea {
 .form-grid label {
   display: grid;
   gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.inline-check {
+  margin: 8px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--muted);
 }
