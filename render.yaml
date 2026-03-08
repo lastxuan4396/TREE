@@ -2,10 +2,11 @@ services:
   - type: web
     name: tree
     runtime: node
+    plan: free
     repo: https://github.com/lastxuan4396/TREE.git
     branch: main
     autoDeploy: true
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
