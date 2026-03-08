@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: tree
+    name: tree-web
     runtime: node
     plan: free
     repo: https://github.com/lastxuan4396/TREE.git
