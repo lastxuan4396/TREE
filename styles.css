@@ -291,6 +291,18 @@ p {
   flex-wrap: wrap;
 }
 
+.share-link-field {
+  margin-top: 10px;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#shareLinkOutput {
+  font-size: 12px;
+}
+
 button,
 .btn-link {
   border: 1px solid transparent;

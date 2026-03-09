@@ -71,6 +71,15 @@
           </section>
 
           <section class="panel">
+            <h3 id="weeklyChallengeTitle" class="mini-title">周挑战</h3>
+            <p id="weeklyChallengeDesc" class="panel-note">本周挑战描述</p>
+            <p id="weeklyChallengeProgress" class="task-title">0 / 0</p>
+            <div class="small-actions">
+              <button id="claimChallengeBtn" class="btn-sub" disabled>领取挑战奖励</button>
+            </div>
+          </section>
+
+          <section class="panel">
             <div class="panel-head">
               <h2 id="taskPanelTitle">节点任务</h2>
               <p id="taskPanelHint" class="panel-note"></p>
@@ -85,8 +94,13 @@
             </div>
             <ul id="weeklyReportList" class="report-list"></ul>
             <div class="small-actions">
+              <button id="publishShareBtn" class="btn-plain">生成分享链接</button>
               <a id="downloadShareBtn" class="btn-link disabled" download="weekly-report.png">下载分享图</a>
             </div>
+            <label class="share-link-field">
+              分享链接
+              <input id="shareLinkOutput" type="text" readonly placeholder="点击“生成分享链接”后出现" />
+            </label>
             <img id="sharePreview" class="share-preview" alt="周报分享预览" hidden />
           </section>
 

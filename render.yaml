@@ -12,9 +12,17 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: DATABASE_URL
+        sync: false
       - key: WEB_PUSH_CONTACT
         sync: false
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: SYNC_CODE_PEPPER
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: ENABLE_INTERVAL_REMINDER
         sync: false

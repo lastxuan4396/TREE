@@ -2,17 +2,14 @@
 
 TREE 是一个可直接分享的成长网页：能力树升级、每日任务、复盘、周报分享图、云同步、Web Push 提醒都在一个站点里。
 
-## 功能亮点
+## 新增优化（2026-03-09）
 
-- 自动推荐今日任务（含推荐理由）
-- 节点升级 + 连续进步（Streak）
-- 30 天热力图 + 节点成长曲线 + 回流指标
-- 新手引导、增长看板、异常行为拦截
-- 一键生成分享图（PNG）
-- JSON 导入导出
-- 无 Token 云同步（通过同步口令）
-- Web Push 提醒 + 日历 `.ics` 备选
-- 可安装为 PWA（桌面/手机）
+- 持久化升级：`DATABASE_URL` 可启用 Postgres（默认文件存储兜底）
+- 同步安全升级：同步口令仅服务端哈希存储 + 接口限流 + 失败锁定
+- 提醒升级：支持 Cron 调用 `/api/cron/reminders`（替代进程内轮询）
+- 分享升级：支持生成“只读分享链接” `https://.../share/:id`
+- 成长机制升级：动态 XP、断更恢复加成、每周挑战奖励
+- 前端模块化：拆分为 `state / api(sync+push+share) / analytics / growth / ui`
 
 ## 本地运行
 
@@ -33,27 +30,37 @@ npm test
 
 ## Render 部署
 
-1. 将仓库推送到 GitHub：`lastxuan4396/TREE`
-2. 在 Render 选择 Blueprint，指向仓库根目录下的 `render.yaml`
-3. 首次部署后可直接打开公网 URL 分享
+仓库已包含 Blueprint：`render.yaml`
 
-### Push 环境变量（建议配置）
+### Web 服务（tree-web）
 
-在 Render 的环境变量里配置：
+必填环境变量：
 
 - `WEB_PUSH_CONTACT`（例如 `mailto:you@example.com`）
 - `VAPID_PUBLIC_KEY`
 - `VAPID_PRIVATE_KEY`
+- `SYNC_CODE_PEPPER`
+- `CRON_SECRET`
 
-未配置时系统会使用临时密钥，重启服务后旧订阅可能失效。
+可选（推荐）：
+
+- `DATABASE_URL`（使用 Render Postgres）
+
+### 提醒调度（两种方式）
+
+1. 免费方案（默认）：设置 `ENABLE_INTERVAL_REMINDER=1`，由 Web 服务进程每分钟检查提醒。  
+2. 定时任务方案（更稳）：使用外部 Cron 或 Render Cron 调用 `POST /api/cron/reminders`，并带 `x-cron-secret` 头（值为 `CRON_SECRET`）。
 
 ## 目录结构
 
-- `index.html`：页面结构
-- `styles.css`：视觉样式
-- `scripts/core.js`：核心规则（可测试）
-- `scripts/app.js`：前端交互与状态
-- `server.js`：同步与推送 API + 静态托管
-- `service-worker.js`：PWA 缓存与推送处理
+- `index.html`：主页面
+- `share.html`：分享页
+- `styles.css`：样式
+- `server.js`：后端 API（同步/推送/分享/Cron）
+- `service-worker.js`：PWA 缓存和推送
 - `manifest.webmanifest`：PWA 配置
-- `tests/core.test.js`：核心逻辑测试
+- `scripts/app.js`：前端主流程
+- `scripts/share.js`：分享页脚本
+- `scripts/modules/*.js`：前端模块
+- `scripts/cron-reminder-trigger.js`：Cron 触发脚本
+- `tests/*.test.js`：单测

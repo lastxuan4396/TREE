@@ -3,7 +3,6 @@ import {
   STREAK_BONUS_XP,
   addDays,
   awardXp,
-  clampInt,
   dateDistance,
   detectCompletionAnomaly,
   getDateKey,
@@ -11,87 +10,21 @@ import {
   syncUnlockState,
   updateStreak,
 } from './core.js';
-
-const STORAGE_KEY = 'ability-tree-upgrade-v4';
-const MAX_TASK_LOGS = 900;
-const MAX_REFLECTIONS = 100;
-const MAX_EVENTS = 800;
-const MAX_VISITS = 140;
-
-const ANTI_CHEAT_CONFIG = {
-  minTaskIntervalMs: 4000,
-  maxTasksPerMinute: 6,
-  maxTasksPerDay: 40,
-};
-
-const difficultyMap = {
-  easy: { label: '简单', xp: 10, className: 'easy' },
-  medium: { label: '中等', xp: 20, className: 'medium' },
-  hard: { label: '困难', xp: 35, className: 'hard' },
-};
-
-const refs = {
-  treeGrid: document.getElementById('treeGrid'),
-  treeLines: document.getElementById('treeLines'),
-  taskList: document.getElementById('taskList'),
-  taskPanelTitle: document.getElementById('taskPanelTitle'),
-  taskPanelHint: document.getElementById('taskPanelHint'),
-  statAccountLevel: document.getElementById('statAccountLevel'),
-  statStreak: document.getElementById('statStreak'),
-  statTodayXp: document.getElementById('statTodayXp'),
-  statWeekXp: document.getElementById('statWeekXp'),
-  weeklyReportList: document.getElementById('weeklyReportList'),
-  reflectionInput: document.getElementById('reflectionInput'),
-  saveReflectionBtn: document.getElementById('saveReflectionBtn'),
-  clearDataBtn: document.getElementById('clearDataBtn'),
-  reflectionHistory: document.getElementById('reflectionHistory'),
-  toast: document.getElementById('toast'),
-  dailyTaskTitle: document.getElementById('dailyTaskTitle'),
-  dailyTaskHint: document.getElementById('dailyTaskHint'),
-  dailyTaskReason: document.getElementById('dailyTaskReason'),
-  dailyCardState: document.getElementById('dailyCardState'),
-  completeDailyBtn: document.getElementById('completeDailyBtn'),
-  focusNodeBtn: document.getElementById('focusNodeBtn'),
-  reminderToggle: document.getElementById('reminderToggle'),
-  reminderTime: document.getElementById('reminderTime'),
-  testReminderBtn: document.getElementById('testReminderBtn'),
-  addCalendarBtn: document.getElementById('addCalendarBtn'),
-  enablePushBtn: document.getElementById('enablePushBtn'),
-  generateShareBtn: document.getElementById('generateShareBtn'),
-  downloadShareBtn: document.getElementById('downloadShareBtn'),
-  sharePreview: document.getElementById('sharePreview'),
-  heatmap: document.getElementById('heatmap'),
-  nodeGrowthChart: document.getElementById('nodeGrowthChart'),
-  recoveryList: document.getElementById('recoveryList'),
-  newNodeName: document.getElementById('newNodeName'),
-  newNodeParent: document.getElementById('newNodeParent'),
-  newNodeDesc: document.getElementById('newNodeDesc'),
-  addNodeBtn: document.getElementById('addNodeBtn'),
-  newTaskNode: document.getElementById('newTaskNode'),
-  newTaskDifficulty: document.getElementById('newTaskDifficulty'),
-  newTaskTitle: document.getElementById('newTaskTitle'),
-  addTaskBtn: document.getElementById('addTaskBtn'),
-  syncCodeInput: document.getElementById('syncCodeInput'),
-  generateSyncCodeBtn: document.getElementById('generateSyncCodeBtn'),
-  cloudUploadBtn: document.getElementById('cloudUploadBtn'),
-  cloudDownloadBtn: document.getElementById('cloudDownloadBtn'),
-  exportDataBtn: document.getElementById('exportDataBtn'),
-  importDataBtn: document.getElementById('importDataBtn'),
-  importFileInput: document.getElementById('importFileInput'),
-  analyticsList: document.getElementById('analyticsList'),
-  onboardingModal: document.getElementById('onboardingModal'),
-  startOnboardingBtn: document.getElementById('startOnboardingBtn'),
-  skipOnboardingBtn: document.getElementById('skipOnboardingBtn'),
-  installAppBtn: document.getElementById('installAppBtn'),
-};
+import { calculateRetention, computeWeeklyLayerMetrics, getHeatmapData, getRecoveryMetrics, getWeeklySummary } from './modules/analytics.js';
+import { apiClient } from './modules/api-client.js';
+import { ANTI_CHEAT_CONFIG, MAX_EVENTS, MAX_REFLECTIONS, MAX_TASK_LOGS, MAX_VISITS, difficultyMap } from './modules/constants.js';
+import { computeAdaptiveXp, computeWeeklyChallengeProgress, ensureWeeklyChallenge, getDailyTaskRecommendation } from './modules/growth.js';
+import { ensureSelectedNode, loadState as loadStoredState, mergeState, saveState as saveStoredState, createInitialState } from './modules/state.js';
+import { debounce, escapeHtml, makeId, refs, showToast } from './modules/ui.js';
 
 let deferredInstallPrompt = null;
 let swRegistration = null;
 
-let state = loadState();
+let state = loadStoredState();
 registerPageOpen();
 state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
-ensureSelectedNode();
+ensureSelectedNode(state);
+ensureWeeklyChallenge(state);
 saveState();
 
 bindEvents();
@@ -106,205 +39,8 @@ if (!state.meta.seenOnboarding) {
   refs.startOnboardingBtn.focus();
 }
 
-function defaultNodes() {
-  return [
-    { id: 'spark', name: '启动火花', desc: '把“想做”变成“先开工”。', parentId: null, row: 1, col: 2 },
-    { id: 'breakdown', name: '任务拆解', desc: '把大目标拆成可执行步骤。', parentId: 'spark', row: 2, col: 2 },
-    { id: 'focus', name: '专注护盾', desc: '减少中断，提升完成质量。', parentId: 'breakdown', row: 3, col: 1 },
-    { id: 'deadline', name: '期限掌控', desc: '不拖到最后一天，提前收口。', parentId: 'breakdown', row: 3, col: 3 },
-    { id: 'output', name: '稳定输出', desc: '连续完成，形成节奏。', parentId: 'focus', row: 4, col: 1 },
-    { id: 'collab', name: '协作推进', desc: '推进协作任务并及时同步。', parentId: 'deadline', row: 4, col: 3 },
-    { id: 'upgrade', name: '复盘升级', desc: '总结规律，持续优化。', parentId: 'output', row: 5, col: 2 },
-  ];
-}
-
-function defaultTasks() {
-  return [
-    { id: 'spark-1', nodeId: 'spark', title: '立刻开始 5 分钟', difficulty: 'easy' },
-    { id: 'spark-2', nodeId: 'spark', title: '把阻力写成一句话', difficulty: 'easy' },
-    { id: 'spark-3', nodeId: 'spark', title: '完成一个最小动作', difficulty: 'medium' },
-    { id: 'break-1', nodeId: 'breakdown', title: '把任务拆成 3 步', difficulty: 'easy' },
-    { id: 'break-2', nodeId: 'breakdown', title: '给每一步估算时间', difficulty: 'medium' },
-    { id: 'break-3', nodeId: 'breakdown', title: '删掉一个不必要步骤', difficulty: 'hard' },
-    { id: 'focus-1', nodeId: 'focus', title: '专注 25 分钟不切屏', difficulty: 'medium' },
-    { id: 'focus-2', nodeId: 'focus', title: '记录一次被打断原因', difficulty: 'easy' },
-    { id: 'focus-3', nodeId: 'focus', title: '关闭 2 个干扰通知', difficulty: 'hard' },
-    { id: 'dead-1', nodeId: 'deadline', title: '把截止日提前 1 天', difficulty: 'medium' },
-    { id: 'dead-2', nodeId: 'deadline', title: '设置中间检查点', difficulty: 'easy' },
-    { id: 'dead-3', nodeId: 'deadline', title: '今天收口一个悬而未决项', difficulty: 'hard' },
-    { id: 'out-1', nodeId: 'output', title: '今天产出一个可交付结果', difficulty: 'medium' },
-    { id: 'out-2', nodeId: 'output', title: '连续两段番茄钟', difficulty: 'hard' },
-    { id: 'out-3', nodeId: 'output', title: '完成后主动做一次复查', difficulty: 'easy' },
-    { id: 'col-1', nodeId: 'collab', title: '给协作者同步当前进展', difficulty: 'easy' },
-    { id: 'col-2', nodeId: 'collab', title: '发出一个明确的协作请求', difficulty: 'medium' },
-    { id: 'col-3', nodeId: 'collab', title: '对齐一次关键交付标准', difficulty: 'hard' },
-    { id: 'up-1', nodeId: 'upgrade', title: '写下今日 1 条有效做法', difficulty: 'easy' },
-    { id: 'up-2', nodeId: 'upgrade', title: '识别一个重复卡点并给对策', difficulty: 'medium' },
-    { id: 'up-3', nodeId: 'upgrade', title: '整理一页本周经验清单', difficulty: 'hard' },
-  ];
-}
-
-function createInitialState() {
-  const nodes = defaultNodes();
-  const nodeProgress = {};
-  for (const node of nodes) {
-    nodeProgress[node.id] = { level: 1, xp: 0, unlocked: !node.parentId };
-  }
-
-  return {
-    version: 4,
-    selectedNodeId: nodes[0].id,
-    totalXp: 0,
-    streak: 0,
-    lastCheckinDate: '',
-    taskLogs: [],
-    reflections: [],
-    nodes,
-    tasks: defaultTasks(),
-    nodeProgress,
-    meta: {
-      firstVisitDate: '',
-      visits: [],
-      seenOnboarding: false,
-      firstTaskCompleted: false,
-      reminderEnabled: false,
-      reminderTime: '20:30',
-      lastReminderDate: '',
-      syncCode: '',
-      pushEnabled: false,
-      lastPushSyncAt: '',
-    },
-    analytics: {
-      events: [],
-    },
-  };
-}
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return createInitialState();
-    return mergeState(JSON.parse(raw));
-  } catch {
-    return createInitialState();
-  }
-}
-
-function mergeState(source) {
-  const base = createInitialState();
-  if (!source || typeof source !== 'object') return base;
-
-  const nodes = Array.isArray(source.nodes)
-    ? source.nodes.filter((node) => node && typeof node.id === 'string' && typeof node.name === 'string')
-    : base.nodes;
-  base.nodes = nodes.length ? nodes.map(sanitizeNode) : base.nodes;
-
-  const tasks = Array.isArray(source.tasks)
-    ? source.tasks.filter(
-        (task) => task && typeof task.id === 'string' && typeof task.nodeId === 'string' && typeof task.title === 'string',
-      )
-    : base.tasks;
-  base.tasks = tasks.length ? tasks.map(sanitizeTask) : base.tasks;
-
-  base.selectedNodeId = typeof source.selectedNodeId === 'string' ? source.selectedNodeId : base.selectedNodeId;
-  base.totalXp = Number.isFinite(source.totalXp) ? Math.max(0, source.totalXp) : base.totalXp;
-  base.streak = Number.isFinite(source.streak) ? Math.max(0, source.streak) : base.streak;
-  base.lastCheckinDate = typeof source.lastCheckinDate === 'string' ? source.lastCheckinDate : '';
-
-  if (Array.isArray(source.taskLogs)) {
-    base.taskLogs = source.taskLogs
-      .filter((log) => log && typeof log.date === 'string' && typeof log.nodeId === 'string')
-      .slice(0, MAX_TASK_LOGS);
-  }
-
-  if (Array.isArray(source.reflections)) {
-    base.reflections = source.reflections
-      .filter((item) => item && typeof item.text === 'string' && typeof item.date === 'string')
-      .slice(0, MAX_REFLECTIONS);
-  }
-
-  if (source.meta && typeof source.meta === 'object') {
-    base.meta = {
-      ...base.meta,
-      firstVisitDate: typeof source.meta.firstVisitDate === 'string' ? source.meta.firstVisitDate : base.meta.firstVisitDate,
-      visits: Array.isArray(source.meta.visits)
-        ? source.meta.visits.filter((v) => typeof v === 'string').slice(0, MAX_VISITS)
-        : base.meta.visits,
-      seenOnboarding: Boolean(source.meta.seenOnboarding),
-      firstTaskCompleted: Boolean(source.meta.firstTaskCompleted),
-      reminderEnabled: Boolean(source.meta.reminderEnabled),
-      reminderTime: typeof source.meta.reminderTime === 'string' ? source.meta.reminderTime : base.meta.reminderTime,
-      lastReminderDate: typeof source.meta.lastReminderDate === 'string' ? source.meta.lastReminderDate : '',
-      syncCode: typeof source.meta.syncCode === 'string' ? source.meta.syncCode.slice(0, 60) : '',
-      pushEnabled: Boolean(source.meta.pushEnabled),
-      lastPushSyncAt: typeof source.meta.lastPushSyncAt === 'string' ? source.meta.lastPushSyncAt : '',
-    };
-  }
-
-  if (source.analytics && typeof source.analytics === 'object' && Array.isArray(source.analytics.events)) {
-    base.analytics.events = source.analytics.events
-      .filter((event) => event && typeof event.type === 'string' && typeof event.date === 'string')
-      .slice(0, MAX_EVENTS);
-  }
-
-  if (source.nodeProgress && typeof source.nodeProgress === 'object') {
-    const merged = {};
-    for (const node of base.nodes) {
-      const incoming = source.nodeProgress[node.id] || {};
-      const level = clampInt(incoming.level, 1, MAX_NODE_LEVEL);
-      merged[node.id] = {
-        level,
-        xp: clampInt(incoming.xp, 0, getXpCap(level)),
-        unlocked: Boolean(incoming.unlocked),
-      };
-    }
-    base.nodeProgress = merged;
-  }
-
-  base.nodeProgress = syncUnlockState(base.nodes, base.nodeProgress);
-  ensureTaskNodes(base);
-  return base;
-}
-
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
-function sanitizeNode(node) {
-  return {
-    id: String(node.id),
-    name: String(node.name).slice(0, 18),
-    desc: String(node.desc || '').slice(0, 50),
-    parentId: node.parentId ? String(node.parentId) : null,
-    row: clampInt(node.row, 1, 20),
-    col: clampInt(node.col, 1, 12),
-    custom: Boolean(node.custom),
-  };
-}
-
-function sanitizeTask(task) {
-  const difficulty = difficultyMap[task.difficulty] ? task.difficulty : 'easy';
-  return {
-    id: String(task.id),
-    nodeId: String(task.nodeId),
-    title: String(task.title).slice(0, 48),
-    difficulty,
-    custom: Boolean(task.custom),
-  };
-}
-
-function ensureTaskNodes(localState) {
-  const ids = new Set(localState.nodes.map((node) => node.id));
-  localState.tasks = localState.tasks.filter((task) => ids.has(task.nodeId));
-  if (!ids.has(localState.selectedNodeId)) {
-    localState.selectedNodeId = localState.nodes[0]?.id || '';
-  }
-}
-
-function ensureSelectedNode() {
-  if (state.nodes.some((node) => node.id === state.selectedNodeId)) return;
-  const unlocked = state.nodes.find((node) => state.nodeProgress[node.id]?.unlocked);
-  state.selectedNodeId = unlocked ? unlocked.id : state.nodes[0]?.id || '';
+  saveStoredState(state);
 }
 
 function registerPageOpen() {
@@ -362,6 +98,8 @@ function bindEvents() {
   refs.generateShareBtn.addEventListener('click', async () => {
     await generateShareImage();
   });
+  refs.publishShareBtn.addEventListener('click', publishShareLink);
+  refs.claimChallengeBtn.addEventListener('click', claimWeeklyChallenge);
 
   refs.addNodeBtn.addEventListener('click', addCustomNode);
   refs.addTaskBtn.addEventListener('click', addCustomTask);
@@ -381,7 +119,7 @@ function bindEvents() {
   refs.startOnboardingBtn.addEventListener('click', () => {
     state.meta.seenOnboarding = true;
     refs.onboardingModal.classList.add('hidden');
-    const daily = getDailyTaskRecommendation();
+    const daily = getDailyTaskRecommendation(state, difficultyMap, MAX_NODE_LEVEL);
     if (daily?.task) setSelectedNode(daily.task.nodeId);
     trackEvent('onboarding_finish');
     saveState();
@@ -483,7 +221,8 @@ function completeTask(taskId, source = 'task_list') {
     return;
   }
 
-  const taskXp = difficultyMap[task.difficulty].xp;
+  const adaptiveXp = computeAdaptiveXp(task, state, difficultyMap, today);
+  const taskXp = adaptiveXp.totalXp;
   const streak = updateStreak(state.lastCheckinDate, state.streak, today);
   state.streak = streak.streak;
   state.lastCheckinDate = streak.lastCheckinDate;
@@ -496,9 +235,17 @@ function completeTask(taskId, source = 'task_list') {
     taskId,
     nodeId: task.nodeId,
     xp: taskXp,
+    baseXp: adaptiveXp.baseXp,
+    bonusXp: adaptiveXp.bonusXp,
+    difficulty: task.difficulty,
     title: task.title,
     completedAt: nowIso,
   });
+
+  if (adaptiveXp.bonusXp > 0) {
+    state.growth.lastRecoveryAt = nowIso;
+    trackEvent('adaptive_xp_bonus', { taskId, bonusXp: adaptiveXp.bonusXp, reasons: adaptiveXp.bonusReasons });
+  }
 
   if (streak.bonus > 0) {
     applyXp(task.nodeId, streak.bonus);
@@ -516,7 +263,15 @@ function completeTask(taskId, source = 'task_list') {
   }
 
   state.taskLogs = state.taskLogs.slice(0, MAX_TASK_LOGS);
-  trackEvent('complete_task', { taskId, nodeId: task.nodeId, source });
+  const challengeStatus = computeWeeklyChallengeProgress(state, today);
+  trackEvent('complete_task', {
+    taskId,
+    nodeId: task.nodeId,
+    source,
+    baseXp: adaptiveXp.baseXp,
+    bonusXp: adaptiveXp.bonusXp,
+    challengeProgress: `${challengeStatus.progress}/${challengeStatus.target}`,
+  });
   if (!state.meta.firstTaskCompleted) {
     state.meta.firstTaskCompleted = true;
     trackEvent('first_task_complete', { taskId, nodeId: task.nodeId });
@@ -529,6 +284,9 @@ function completeTask(taskId, source = 'task_list') {
   renderAll();
 
   const parts = [`完成任务 +${taskXp} XP`];
+  if (adaptiveXp.bonusXp > 0) {
+    parts.push(`动态加成 +${adaptiveXp.bonusXp}`);
+  }
   if (levelUps > 0) parts.push(`升级 +${levelUps}`);
   if (streak.bonus > 0) parts.push(`连击奖励 +${STREAK_BONUS_XP} XP`);
   showToast(parts.join(' ｜ '));
@@ -554,6 +312,7 @@ function clearData() {
   const ok = window.confirm('确认重置全部数据吗？当前记录会被清空。');
   if (!ok) return;
   state = createInitialState();
+  ensureWeeklyChallenge(state);
   registerPageOpen();
   trackEvent('reset_data');
   saveState();
@@ -564,75 +323,14 @@ function clearData() {
   showToast('已恢复到初始状态。');
 }
 
-function getDailyTaskRecommendation() {
-  const today = getDateKey();
-  const unlockedNodeIds = new Set(state.nodes.filter((node) => state.nodeProgress[node.id]?.unlocked).map((node) => node.id));
-
-  const available = state.tasks.filter((task) => {
-    if (!unlockedNodeIds.has(task.nodeId)) return false;
-    return !state.taskLogs.some((log) => log.kind === 'task' && log.taskId === task.id && log.date === today);
-  });
-
-  if (!available.length) {
-    const fallback = state.tasks.find((task) => unlockedNodeIds.has(task.nodeId));
-    return { task: fallback || null, doneToday: true, reason: '今日任务已清空，做一次复盘巩固。' };
-  }
-
-  const interruptive = state.reflections
-    .slice(0, 6)
-    .some((item) => /拖延|打断|分心|焦虑|卡住/.test(item.text));
-
-  const node14 = nodeCompletionInDays(14);
-  const node7 = nodeCompletionInDays(7);
-
-  let chosen = available[0];
-  let bestScore = Number.NEGATIVE_INFINITY;
-  let reason = '保持节奏，推进当前能力节点。';
-
-  for (const task of available) {
-    const progress = state.nodeProgress[task.nodeId] || { level: 1, xp: 0 };
-    const ratio = progress.level >= MAX_NODE_LEVEL ? 1 : progress.xp / getXpCap(progress.level);
-    const bottleneck = (1 - ratio) * 28;
-    const lowMomentum = Math.max(0, 4 - (node7[task.nodeId] || 0)) * 6;
-    const overFocusPenalty = (node14[task.nodeId] || 0) > 8 ? 8 : 0;
-    const easyBonus = interruptive && task.difficulty === 'easy' ? 10 : 0;
-    const score = bottleneck + lowMomentum + easyBonus - overFocusPenalty;
-
-    if (score > bestScore) {
-      bestScore = score;
-      chosen = task;
-      if (interruptive && task.difficulty === 'easy') {
-        reason = '最近复盘出现分心/拖延，先做一个低阻力任务恢复节奏。';
-      } else if (lowMomentum >= 18) {
-        reason = '该节点近期推进偏慢，优先补足这里的进度。';
-      } else {
-        reason = '该节点当前进度最低，优先补齐短板。';
-      }
-    }
-  }
-
-  return { task: chosen, doneToday: false, reason };
-}
-
-function nodeCompletionInDays(days) {
-  const today = getDateKey();
-  const map = {};
-  for (const log of state.taskLogs) {
-    if (log.kind !== 'task') continue;
-    const diff = dateDistance(log.date, today);
-    if (diff < 0 || diff >= days) continue;
-    map[log.nodeId] = (map[log.nodeId] || 0) + 1;
-  }
-  return map;
-}
-
 function renderAll() {
-  ensureSelectedNode();
+  ensureSelectedNode(state);
   renderStats();
   renderNodeSelectors();
   renderTree();
   renderTasks();
   renderDailyCard();
+  renderWeeklyChallenge();
   renderWeeklyReport();
   renderGrowthVisuals();
   renderReflections();
@@ -883,7 +581,7 @@ function renderTasks() {
 }
 
 function renderDailyCard() {
-  const daily = getDailyTaskRecommendation();
+  const daily = getDailyTaskRecommendation(state, difficultyMap, MAX_NODE_LEVEL);
 
   if (!daily.task) {
     refs.dailyTaskTitle.textContent = '暂无可用任务';
@@ -910,32 +608,8 @@ function renderDailyCard() {
   refs.dailyCardState.classList.toggle('done', daily.doneToday);
 }
 
-function getWeeklySummary() {
-  const today = getDateKey();
-  const weekLogs = state.taskLogs.filter((log) => {
-    const diff = dateDistance(log.date, today);
-    return diff >= 0 && diff < 7;
-  });
-
-  const xpByNode = {};
-  for (const node of state.nodes) xpByNode[node.id] = 0;
-  for (const log of weekLogs) {
-    xpByNode[log.nodeId] = (xpByNode[log.nodeId] || 0) + Number(log.xp || 0);
-  }
-
-  const sorted = Object.entries(xpByNode).filter(([, xp]) => xp > 0).sort((a, b) => b[1] - a[1]);
-  const topA = sorted[0] || null;
-  const topB = sorted[1] || null;
-  const weekXp = weekLogs.reduce((sum, log) => sum + Number(log.xp || 0), 0);
-  const finishedCount = weekLogs.filter((log) => log.kind === 'task').length;
-  const streakMod = state.streak % 7;
-  const daysToBonus = state.streak === 0 ? 7 : streakMod === 0 ? 7 : 7 - streakMod;
-
-  return { weekXp, finishedCount, topA, topB, daysToBonus };
-}
-
 function renderWeeklyReport() {
-  const summary = getWeeklySummary();
+  const summary = getWeeklySummary(state);
   const topAName = summary.topA ? getNodeById(summary.topA[0])?.name || '-' : '-';
   const topBName = summary.topB ? getNodeById(summary.topB[0])?.name || '-' : '-';
 
@@ -953,6 +627,15 @@ function renderWeeklyReport() {
   refs.weeklyReportList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
 }
 
+function renderWeeklyChallenge() {
+  const challenge = computeWeeklyChallengeProgress(state);
+  refs.weeklyChallengeTitle.textContent = challenge.title;
+  refs.weeklyChallengeDesc.textContent = `${challenge.description} ｜ 奖励 +${challenge.rewardXp} XP`;
+  refs.weeklyChallengeProgress.textContent = `${challenge.progress} / ${challenge.target}`;
+  refs.claimChallengeBtn.disabled = !challenge.claimable;
+  refs.claimChallengeBtn.textContent = challenge.claimed ? '本周已领取' : challenge.claimable ? '领取挑战奖励' : '挑战进行中';
+}
+
 function renderGrowthVisuals() {
   renderHeatmap();
   renderGrowthChart();
@@ -960,17 +643,7 @@ function renderGrowthVisuals() {
 }
 
 function renderHeatmap() {
-  const today = getDateKey();
-  const xpByDay = {};
-  for (const log of state.taskLogs) {
-    xpByDay[log.date] = (xpByDay[log.date] || 0) + Number(log.xp || 0);
-  }
-
-  const days = [];
-  for (let i = 29; i >= 0; i -= 1) {
-    const date = addDays(today, -i);
-    days.push({ date, xp: xpByDay[date] || 0 });
-  }
+  const days = getHeatmapData(state.taskLogs);
 
   refs.heatmap.innerHTML = days
     .map((item) => {
@@ -1052,31 +725,18 @@ function renderGrowthChart() {
 }
 
 function renderRecoveryMetrics() {
-  const taskDates = [...new Set(state.taskLogs.filter((log) => log.kind === 'task').map((log) => log.date))].sort();
-
-  let gapCount = 0;
-  let recoveryDays = 0;
-
-  for (let i = 1; i < taskDates.length; i += 1) {
-    const gap = dateDistance(taskDates[i - 1], taskDates[i]);
-    if (gap > 1) {
-      gapCount += 1;
-      recoveryDays += gap - 1;
-    }
-  }
-
-  const avgRecovery = gapCount ? (recoveryDays / gapCount).toFixed(1) : '0';
+  const recovery = getRecoveryMetrics(state.taskLogs);
   const lines = [
-    `中断后恢复次数：<strong>${gapCount}</strong> 次`,
-    `平均恢复天数：<strong>${avgRecovery}</strong> 天`,
-    `最近一次任务：<strong>${taskDates[taskDates.length - 1] || '-'}</strong>`,
+    `中断后恢复次数：<strong>${recovery.gapCount}</strong> 次`,
+    `平均恢复天数：<strong>${recovery.avgRecovery}</strong> 天`,
+    `最近一次任务：<strong>${recovery.lastTaskDate || '-'}</strong>`,
   ];
 
   refs.recoveryList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
 }
 
 async function generateShareImage() {
-  const summary = getWeeklySummary();
+  const summary = getWeeklySummary(state);
   const level = 1 + Math.floor(state.totalXp / 180);
   const topName = summary.topA ? getNodeById(summary.topA[0])?.name || '暂无' : '暂无';
 
@@ -1148,6 +808,71 @@ async function generateShareImage() {
   trackEvent('generate_share_image');
   saveState();
   showToast('分享图已生成，可直接下载。');
+}
+
+function buildShareSnapshot() {
+  const summary = getWeeklySummary(state);
+  const challenge = computeWeeklyChallengeProgress(state);
+  const topNodes = [summary.topA, summary.topB]
+    .filter(Boolean)
+    .map(([nodeId, xp]) => ({ name: getNodeById(nodeId)?.name || nodeId, xp }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    accountLevel: 1 + Math.floor(state.totalXp / 180),
+    streak: state.streak,
+    weekXp: summary.weekXp,
+    finishedCount: summary.finishedCount,
+    topNodes,
+    weeklyChallenge: {
+      title: challenge.title,
+      progress: challenge.progress,
+      target: challenge.target,
+    },
+    message: state.reflections[0]?.text || '每天一个最小动作，持续进步。',
+  };
+}
+
+async function publishShareLink() {
+  try {
+    const result = await apiClient.createShare(buildShareSnapshot());
+    refs.shareLinkOutput.value = result.url || `${window.location.origin}/share/${result.shareId}`;
+    await navigator.clipboard?.writeText(refs.shareLinkOutput.value).catch(() => {});
+    trackEvent('publish_share_link', { shareId: result.shareId || null });
+    saveState();
+    showToast('分享链接已生成，已尝试复制到剪贴板。');
+  } catch (error) {
+    showToast(`生成分享链接失败：${error.message}`);
+  }
+}
+
+function claimWeeklyChallenge() {
+  const challenge = computeWeeklyChallengeProgress(state);
+  if (!challenge.claimable) {
+    showToast('挑战进度还未达标。');
+    return;
+  }
+
+  const targetNodeId = state.selectedNodeId || state.nodes[0]?.id;
+  if (!targetNodeId) return;
+
+  applyXp(targetNodeId, challenge.rewardXp);
+  state.taskLogs.unshift({
+    id: makeId('log'),
+    kind: 'bonus',
+    date: getDateKey(),
+    taskId: 'weekly-challenge',
+    nodeId: targetNodeId,
+    xp: challenge.rewardXp,
+    title: '周挑战奖励',
+    completedAt: new Date().toISOString(),
+  });
+  state.taskLogs = state.taskLogs.slice(0, MAX_TASK_LOGS);
+  state.growth.weeklyChallenge.claimed = true;
+  trackEvent('weekly_challenge_claim', { rewardXp: challenge.rewardXp, targetNodeId });
+  saveState();
+  renderAll();
+  showToast(`周挑战奖励已领取 +${challenge.rewardXp} XP`);
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
@@ -1298,8 +1023,9 @@ async function importData() {
     const text = await file.text();
     const parsed = JSON.parse(text);
     state = mergeState(parsed.state || parsed);
+    ensureWeeklyChallenge(state);
     state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
-    ensureSelectedNode();
+    ensureSelectedNode(state);
     trackEvent('import_data', { version: parsed.version || null });
     saveState();
     renderAll();
@@ -1328,13 +1054,7 @@ async function uploadCloudBackup() {
   }
 
   try {
-    const res = await fetch('/api/sync/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ syncCode, payload: buildBackupPayload() }),
-    });
-
-    if (!res.ok) throw new Error(`服务响应 ${res.status}`);
+    await apiClient.uploadSync(syncCode, buildBackupPayload());
 
     state.meta.syncCode = syncCode;
     trackEvent('cloud_upload');
@@ -1353,21 +1073,14 @@ async function downloadCloudBackup() {
   }
 
   try {
-    const res = await fetch('/api/sync/download', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ syncCode }),
-    });
-
-    if (!res.ok) throw new Error(`服务响应 ${res.status}`);
-
-    const data = await res.json();
+    const data = await apiClient.downloadSync(syncCode);
     if (!data?.payload) throw new Error('云端没有备份');
 
     state = mergeState(data.payload.state || data.payload);
+    ensureWeeklyChallenge(state);
     state.meta.syncCode = syncCode;
     state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
-    ensureSelectedNode();
+    ensureSelectedNode(state);
     trackEvent('cloud_download');
     saveState();
     renderAll();
@@ -1400,9 +1113,7 @@ async function enablePushNotifications() {
       swRegistration = await navigator.serviceWorker.register('/service-worker.js');
     }
 
-    const keyRes = await fetch('/api/push/public-key');
-    if (!keyRes.ok) throw new Error(`获取公钥失败 ${keyRes.status}`);
-    const keyData = await keyRes.json();
+    const keyData = await apiClient.getPushPublicKey();
     const publicKey = keyData?.publicKey;
     if (!publicKey) throw new Error('公钥为空');
 
@@ -1414,12 +1125,7 @@ async function enablePushNotifications() {
       });
     }
 
-    const subRes = await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ syncCode, subscription }),
-    });
-    if (!subRes.ok) throw new Error(`订阅失败 ${subRes.status}`);
+    await apiClient.subscribePush(syncCode, subscription);
 
     state.meta.syncCode = syncCode;
     state.meta.pushEnabled = true;
@@ -1441,17 +1147,12 @@ async function syncReminderToServer() {
   if (!syncCode) return;
 
   try {
-    const res = await fetch('/api/reminder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        syncCode,
-        enabled: Boolean(state.meta.reminderEnabled),
-        time: state.meta.reminderTime,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      }),
-    });
-    if (!res.ok) throw new Error(`提醒同步失败 ${res.status}`);
+    await apiClient.syncReminder(
+      syncCode,
+      Boolean(state.meta.reminderEnabled),
+      state.meta.reminderTime,
+      Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    );
     state.meta.lastPushSyncAt = new Date().toISOString();
     saveState();
   } catch {
@@ -1465,11 +1166,7 @@ async function triggerServerPushTest(message) {
   if (!syncCode) return;
 
   try {
-    await fetch('/api/push/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ syncCode, message }),
-    });
+    await apiClient.pushTest(syncCode, message);
   } catch {
     // fallback only
   }
@@ -1552,7 +1249,7 @@ function renderAnalytics() {
   const d1 = calculateRetention(state.meta.visits, 1);
   const d7 = calculateRetention(state.meta.visits, 7);
 
-  const weekly = computeWeeklyLayerMetrics();
+  const weekly = computeWeeklyLayerMetrics(state);
   const onboardingRate = onboardingStart === 0 ? 0 : Math.round((onboardingFinish / onboardingStart) * 100);
   const activationRate = onboardingFinish === 0 ? 0 : Math.round((firstTask / onboardingFinish) * 100);
 
@@ -1569,68 +1266,6 @@ function renderAnalytics() {
   ];
 
   refs.analyticsList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
-}
-
-function computeWeeklyLayerMetrics() {
-  const today = getDateKey();
-  const weekStart = getWeekStart(today);
-  const prevWeekStart = addDays(weekStart, -7);
-
-  const firstVisit = state.meta.firstVisitDate;
-  const newUsers = firstVisit && dateDistance(weekStart, firstVisit) >= 0 && dateDistance(firstVisit, today) >= 0 ? 1 : 0;
-
-  const firstTaskDate = state.analytics.events
-    .filter((e) => e.type === 'first_task_complete')
-    .map((e) => e.date.slice(0, 10))
-    .sort()[0];
-
-  const activatedUsers = firstTaskDate && dateDistance(weekStart, firstTaskDate) >= 0 && dateDistance(firstTaskDate, today) >= 0 ? 1 : 0;
-
-  const visits = [...new Set(state.meta.visits)].sort();
-  const visitedThisWeek = visits.some((d) => dateDistance(weekStart, d) >= 0 && dateDistance(d, today) >= 0);
-  const visitedPrevWeek = visits.some((d) => dateDistance(prevWeekStart, d) >= 0 && dateDistance(d, addDays(weekStart, -1)) >= 0);
-  const retainedUsers = visitedThisWeek && visitedPrevWeek ? 1 : 0;
-
-  let reactivatedUsers = 0;
-  const firstThisWeekVisit = visits.find((d) => dateDistance(weekStart, d) >= 0 && dateDistance(d, today) >= 0);
-  if (firstThisWeekVisit) {
-    const previousVisit = [...visits].reverse().find((d) => dateDistance(d, firstThisWeekVisit) > 0);
-    if (previousVisit && dateDistance(previousVisit, firstThisWeekVisit) >= 7) {
-      reactivatedUsers = 1;
-    }
-  }
-
-  return { newUsers, activatedUsers, retainedUsers, reactivatedUsers };
-}
-
-function getWeekStart(dateKey) {
-  const date = new Date(`${dateKey}T00:00:00`);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  return getDateKey(date);
-}
-
-function calculateRetention(visits, days) {
-  const unique = [...new Set(visits)].sort();
-  if (!unique.length) return { eligible: 0, retained: 0, rate: 0 };
-
-  const visitSet = new Set(unique);
-  const today = getDateKey();
-  let eligible = 0;
-  let retained = 0;
-
-  for (const day of unique) {
-    if (dateDistance(day, today) < days) continue;
-    eligible += 1;
-    if (visitSet.has(addDays(day, days))) retained += 1;
-  }
-
-  return {
-    eligible,
-    retained,
-    rate: eligible === 0 ? 0 : Math.round((retained / eligible) * 100),
-  };
 }
 
 function checkReminderFallback() {
@@ -1686,35 +1321,4 @@ function trackEvent(type, meta = {}) {
 
 function getNodeById(nodeId) {
   return state.nodes.find((node) => node.id === nodeId);
-}
-
-function makeId(prefix) {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function escapeHtml(text) {
-  return String(text)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function showToast(message) {
-  refs.toast.textContent = message;
-  refs.toast.classList.add('show');
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => refs.toast.classList.remove('show'), 1900);
-}
-
-function debounce(fn, delay) {
-  let timer = null;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  };
 }

@@ -1,14 +1,16 @@
 {
   "name": "tree",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "cron:trigger": "node scripts/cron-reminder-trigger.js",
     "test": "node --test"
   },
   "dependencies": {
     "express": "^4.21.2",
+    "pg": "^8.13.3",
     "web-push": "^3.6.7"
   },
   "engines": {
