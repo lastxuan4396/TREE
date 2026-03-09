@@ -6,7 +6,7 @@ if (!baseUrl) {
   process.exit(1);
 }
 
-const target = `${baseUrl}/api/cron/reminders`;
+const target = `${baseUrl}/api/cron/run-all`;
 
 try {
   const response = await fetch(target, {

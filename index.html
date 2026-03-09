@@ -80,6 +80,46 @@
           </section>
 
           <section class="panel">
+            <h3 class="mini-title">30 天路线图</h3>
+            <div class="small-actions">
+              <select id="roadmapTemplateSelect"></select>
+              <button id="regenerateRoadmapBtn" class="btn-plain">重建路线</button>
+            </div>
+            <ul id="roadmapList" class="report-list"></ul>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">防摆烂保底任务</h3>
+            <p id="rescueHint" class="panel-note">当前无需保底任务。</p>
+            <div class="small-actions">
+              <button id="completeRescueBtn" class="btn-main">完成 2 分钟保底任务</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">情绪与精力打点</h3>
+            <div class="form-grid">
+              <label>
+                开始前情绪
+                <select id="moodBefore"></select>
+              </label>
+              <label>
+                开始前精力
+                <select id="energyBefore"></select>
+              </label>
+              <label>
+                完成后情绪
+                <select id="moodAfter"></select>
+              </label>
+              <label>
+                完成后精力
+                <select id="energyAfter"></select>
+              </label>
+            </div>
+            <p id="wellbeingHint" class="panel-note">用 1-5 分记录状态，系统会计算你最稳定的时段。</p>
+          </section>
+
+          <section class="panel">
             <div class="panel-head">
               <h2 id="taskPanelTitle">节点任务</h2>
               <p id="taskPanelHint" class="panel-note"></p>
@@ -120,7 +160,18 @@
             ></textarea>
             <div class="small-actions" style="margin-top: 8px">
               <button id="saveReflectionBtn" class="btn-sub">保存复盘</button>
+              <button id="aiAdviceBtn" class="btn-plain">AI 复盘建议</button>
             </div>
+            <p id="aiAdviceOutput" class="panel-note">输入复盘后可生成“原因 + 明日动作”。</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">模板市场</h3>
+            <div class="small-actions">
+              <select id="marketTemplateSelect"></select>
+              <button id="importTemplateBtn" class="btn-sub">导入模板</button>
+            </div>
+            <p id="marketTemplateDesc" class="panel-note">一键导入拖延恢复、考研冲刺、健身增肌等模板。</p>
           </section>
 
           <section class="panel">
@@ -180,6 +231,84 @@
               <button id="cloudDownloadBtn" class="btn-plain">从云端恢复</button>
             </div>
             <p class="panel-note">使用你自己的同步口令，不需要 GitHub Token。</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">组队共进（情侣/朋友）</h3>
+            <div class="form-grid">
+              <label>
+                我的昵称
+                <input id="teamAliasInput" type="text" maxlength="18" placeholder="例如：小玄" />
+              </label>
+              <label>
+                队伍邀请码
+                <input id="teamCodeInput" type="text" maxlength="10" placeholder="例如：TR8F2K1" />
+              </label>
+            </div>
+            <div class="small-actions">
+              <button id="createTeamBtn" class="btn-sub">创建队伍</button>
+              <button id="joinTeamBtn" class="btn-plain">加入队伍</button>
+              <button id="syncTeamBtn" class="btn-plain">同步进度</button>
+            </div>
+            <div class="form-grid" style="margin-top: 8px">
+              <label class="full">
+                打气内容
+                <input id="teamCheerInput" type="text" maxlength="60" placeholder="例如：你这周节奏很稳，继续冲！" />
+              </label>
+            </div>
+            <div class="small-actions">
+              <button id="sendCheerBtn" class="btn-plain">发送打气</button>
+            </div>
+            <ul id="teamMembersList" class="report-list"></ul>
+            <ul id="teamCheersList" class="history"></ul>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">实物奖励系统</h3>
+            <p id="rewardPointsText" class="task-title">奖励积分：0</p>
+            <div class="form-grid">
+              <label>
+                奖励名称
+                <input id="rewardNameInput" type="text" maxlength="40" placeholder="例如：周末电影约会" />
+              </label>
+              <label>
+                兑换积分
+                <input id="rewardCostInput" type="number" min="1" max="999" value="6" />
+              </label>
+            </div>
+            <div class="small-actions">
+              <button id="addRewardBtn" class="btn-sub">添加奖励</button>
+            </div>
+            <ul id="rewardList" class="report-list"></ul>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">周报自动发送</h3>
+            <div class="form-grid">
+              <label class="full">
+                Webhook 地址
+                <input id="reportWebhookInput" type="url" placeholder="例如：https://example.com/webhook" />
+              </label>
+            </div>
+            <label class="inline-check">
+              <input id="reportEnableToggle" type="checkbox" />
+              启用每周自动发送
+            </label>
+            <div class="small-actions">
+              <button id="saveReportConfigBtn" class="btn-sub">保存配置</button>
+              <button id="testReportBtn" class="btn-plain">发送测试周报</button>
+            </div>
+            <p id="reportStatusText" class="panel-note">尚未配置自动发送。</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">成就勋章</h3>
+            <ul id="badgeList" class="report-list"></ul>
+          </section>
+
+          <section class="panel">
+            <h3 class="mini-title">趋势预测</h3>
+            <ul id="forecastList" class="report-list"></ul>
           </section>
 
           <section class="panel">

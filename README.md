@@ -6,9 +6,10 @@ TREE 是一个可直接分享的成长网页：能力树升级、每日任务、
 
 - 持久化升级：`DATABASE_URL` 可启用 Postgres（默认文件存储兜底）
 - 同步安全升级：同步口令仅服务端哈希存储 + 接口限流 + 失败锁定
-- 提醒升级：支持 Cron 调用 `/api/cron/reminders`（替代进程内轮询）
+- 提醒升级：支持 Cron 调用 `/api/cron/run-all`（提醒+周报同一入口）
 - 分享升级：支持生成“只读分享链接” `https://.../share/:id`
 - 成长机制升级：动态 XP、断更恢复加成、每周挑战奖励
+- 功能扩展：30 天路线图、模板市场、队友组队、鼓励留言、奖励兑换、徽章、成长预测
 - 前端模块化：拆分为 `state / api(sync+push+share) / analytics / growth / ui`
 
 ## 本地运行
@@ -45,11 +46,29 @@ npm test
 可选（推荐）：
 
 - `DATABASE_URL`（使用 Render Postgres）
+- `DATABASE_REQUIRED=1`（可选，开启后 Postgres 失败将直接启动失败，不再回退文件存储）
+- `PG_CONNECT_TIMEOUT_MS`（可选，Postgres 连接超时，默认 `8000`）
 
 ### 提醒调度（两种方式）
 
 1. 免费方案（默认）：设置 `ENABLE_INTERVAL_REMINDER=1`，由 Web 服务进程每分钟检查提醒。  
-2. 定时任务方案（更稳）：使用外部 Cron 或 Render Cron 调用 `POST /api/cron/reminders`，并带 `x-cron-secret` 头（值为 `CRON_SECRET`）。
+2. 定时任务方案（更稳）：使用外部 Cron 或 Render Cron 调用 `POST /api/cron/run-all`，并带 `x-cron-secret` 头（值为 `CRON_SECRET`）。
+
+## 新增 API（2026-03-09）
+
+- 组队协作
+  - `POST /api/team/create`
+  - `POST /api/team/join`
+  - `GET /api/team/:teamCode`
+  - `POST /api/team/update`
+  - `POST /api/team/cheer`
+- 周报自动发送
+  - `POST /api/report/config`
+  - `POST /api/report/get`
+  - `POST /api/report/test`
+- 定时触发
+  - `POST /api/cron/run-all`
+  - `GET /api/cron/run-all`
 
 ## 目录结构
 

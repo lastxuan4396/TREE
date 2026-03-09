@@ -70,4 +70,57 @@ export const apiClient = {
       body: { snapshot },
     });
   },
+
+  createTeam(alias) {
+    return requestJson('/api/team/create', {
+      method: 'POST',
+      body: { alias },
+    });
+  },
+
+  joinTeam(teamCode, alias) {
+    return requestJson('/api/team/join', {
+      method: 'POST',
+      body: { teamCode, alias },
+    });
+  },
+
+  getTeam(teamCode) {
+    return requestJson(`/api/team/${encodeURIComponent(teamCode)}`);
+  },
+
+  updateTeamProgress(payload) {
+    return requestJson('/api/team/update', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  sendTeamCheer(payload) {
+    return requestJson('/api/team/cheer', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  saveReportConfig(syncCode, webhookUrl, enabled) {
+    return requestJson('/api/report/config', {
+      method: 'POST',
+      body: { syncCode, webhookUrl, enabled },
+    });
+  },
+
+  getReportConfig(syncCode) {
+    return requestJson('/api/report/get', {
+      method: 'POST',
+      body: { syncCode },
+    });
+  },
+
+  testReport(syncCode, snapshot) {
+    return requestJson('/api/report/test', {
+      method: 'POST',
+      body: { syncCode, snapshot },
+    });
+  },
 };

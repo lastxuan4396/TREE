@@ -1,5 +1,5 @@
-export const STORAGE_KEY = 'ability-tree-upgrade-v5';
-export const LEGACY_STORAGE_KEYS = ['ability-tree-upgrade-v4'];
+export const STORAGE_KEY = 'ability-tree-upgrade-v6';
+export const LEGACY_STORAGE_KEYS = ['ability-tree-upgrade-v5', 'ability-tree-upgrade-v4'];
 
 export const MAX_TASK_LOGS = 900;
 export const MAX_REFLECTIONS = 100;

@@ -26,3 +26,22 @@ services:
         sync: false
       - key: ENABLE_INTERVAL_REMINDER
         sync: false
+      - key: DATABASE_REQUIRED
+        sync: false
+      - key: PG_CONNECT_TIMEOUT_MS
+        value: 8000
+
+  - type: cron
+    name: tree-cron
+    runtime: node
+    plan: free
+    repo: https://github.com/lastxuan4396/TREE.git
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm run cron:trigger
+    schedule: "*/5 * * * *"
+    envVars:
+      - key: TREE_WEB_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false

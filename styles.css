@@ -291,6 +291,10 @@ p {
   flex-wrap: wrap;
 }
 
+.small-actions select {
+  min-width: 160px;
+}
+
 .share-link-field {
   margin-top: 10px;
   display: grid;
@@ -459,6 +463,30 @@ textarea {
   background: #fff;
   padding: 8px 9px;
   font-size: 12px;
+}
+
+.badge-earned {
+  border-color: rgba(15, 118, 110, 0.35) !important;
+  background: #ebfffa !important;
+}
+
+.badge-locked {
+  opacity: 0.66;
+}
+
+.team-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.roadmap-done {
+  color: #0f5132;
+}
+
+.roadmap-pending {
+  color: #92400e;
 }
 
 .mini-title {

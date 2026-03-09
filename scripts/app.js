@@ -15,6 +15,7 @@ import { apiClient } from './modules/api-client.js';
 import { ANTI_CHEAT_CONFIG, MAX_EVENTS, MAX_REFLECTIONS, MAX_TASK_LOGS, MAX_VISITS, difficultyMap } from './modules/constants.js';
 import { computeAdaptiveXp, computeWeeklyChallengeProgress, ensureWeeklyChallenge, getDailyTaskRecommendation } from './modules/growth.js';
 import { ensureSelectedNode, loadState as loadStoredState, mergeState, saveState as saveStoredState, createInitialState } from './modules/state.js';
+import { generateRoadmap, getTemplateById, getTemplatePacks, importTemplatePack } from './modules/templates.js';
 import { debounce, escapeHtml, makeId, refs, showToast } from './modules/ui.js';
 
 let deferredInstallPrompt = null;
@@ -25,9 +26,11 @@ registerPageOpen();
 state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
 ensureSelectedNode(state);
 ensureWeeklyChallenge(state);
+ensureFeatureState();
 saveState();
 
 bindEvents();
+initFeatureUi();
 initPwa();
 renderAll();
 checkReminderFallback();
@@ -41,6 +44,51 @@ if (!state.meta.seenOnboarding) {
 
 function saveState() {
   saveStoredState(state);
+}
+
+function ensureFeatureState() {
+  if (!state.growth || typeof state.growth !== 'object') {
+    state.growth = {};
+  }
+  if (!state.growth.roadmapTemplate) {
+    state.growth.roadmapTemplate = 'procrastination-recovery';
+  }
+
+  if (!state.social || typeof state.social !== 'object') {
+    state.social = {};
+  }
+  state.social.teamCode = state.social.teamCode || '';
+  state.social.memberId = state.social.memberId || '';
+  state.social.alias = state.social.alias || '';
+  state.social.members = Array.isArray(state.social.members) ? state.social.members : [];
+  state.social.progress = state.social.progress && typeof state.social.progress === 'object' ? state.social.progress : {};
+  state.social.cheers = Array.isArray(state.social.cheers) ? state.social.cheers : [];
+  state.social.updatedAt = state.social.updatedAt || '';
+
+  if (!state.rewards || typeof state.rewards !== 'object') {
+    state.rewards = { points: 0, items: [], history: [] };
+  }
+  state.rewards.points = Number.isFinite(Number(state.rewards.points)) ? Math.max(0, Number(state.rewards.points)) : 0;
+  state.rewards.items = Array.isArray(state.rewards.items) ? state.rewards.items : [];
+  state.rewards.history = Array.isArray(state.rewards.history) ? state.rewards.history : [];
+
+  if (!state.wellbeing || typeof state.wellbeing !== 'object') {
+    state.wellbeing = {};
+  }
+  state.wellbeing.moodBefore = state.wellbeing.moodBefore || 3;
+  state.wellbeing.energyBefore = state.wellbeing.energyBefore || 3;
+  state.wellbeing.moodAfter = state.wellbeing.moodAfter || 4;
+  state.wellbeing.energyAfter = state.wellbeing.energyAfter || 4;
+  state.wellbeing.logs = Array.isArray(state.wellbeing.logs) ? state.wellbeing.logs : [];
+
+  if (!state.report || typeof state.report !== 'object') {
+    state.report = {};
+  }
+  state.report.enabled = Boolean(state.report.enabled);
+  state.report.webhookUrl = state.report.webhookUrl || '';
+  state.report.lastStatus = state.report.lastStatus || '';
+  state.report.lastSentWeekKey = state.report.lastSentWeekKey || '';
+  state.report.updatedAt = state.report.updatedAt || '';
 }
 
 function registerPageOpen() {
@@ -100,6 +148,39 @@ function bindEvents() {
   });
   refs.publishShareBtn.addEventListener('click', publishShareLink);
   refs.claimChallengeBtn.addEventListener('click', claimWeeklyChallenge);
+  refs.regenerateRoadmapBtn.addEventListener('click', regenerateRoadmap);
+  refs.roadmapTemplateSelect.addEventListener('change', () => {
+    state.growth.roadmapTemplate = refs.roadmapTemplateSelect.value;
+    regenerateRoadmap();
+  });
+  refs.completeRescueBtn.addEventListener('click', completeRescueTask);
+
+  refs.moodBefore.addEventListener('change', () => {
+    state.wellbeing.moodBefore = Number(refs.moodBefore.value || 3);
+    saveState();
+  });
+  refs.energyBefore.addEventListener('change', () => {
+    state.wellbeing.energyBefore = Number(refs.energyBefore.value || 3);
+    saveState();
+  });
+  refs.moodAfter.addEventListener('change', () => {
+    state.wellbeing.moodAfter = Number(refs.moodAfter.value || 4);
+    saveState();
+  });
+  refs.energyAfter.addEventListener('change', () => {
+    state.wellbeing.energyAfter = Number(refs.energyAfter.value || 4);
+    saveState();
+  });
+
+  refs.aiAdviceBtn.addEventListener('click', generateAiAdvice);
+  refs.importTemplateBtn.addEventListener('click', importMarketTemplate);
+  refs.createTeamBtn.addEventListener('click', createTeam);
+  refs.joinTeamBtn.addEventListener('click', joinTeam);
+  refs.syncTeamBtn.addEventListener('click', syncTeamProgress);
+  refs.sendCheerBtn.addEventListener('click', sendTeamCheer);
+  refs.addRewardBtn.addEventListener('click', addRewardItem);
+  refs.saveReportConfigBtn.addEventListener('click', saveReportConfig);
+  refs.testReportBtn.addEventListener('click', testReportSend);
 
   refs.addNodeBtn.addEventListener('click', addCustomNode);
   refs.addTaskBtn.addEventListener('click', addCustomTask);
@@ -146,6 +227,54 @@ function bindEvents() {
     renderGrowthChart();
     drawTreeLines();
   }, 120));
+}
+
+function initFeatureUi() {
+  initTemplateSelectors();
+  initWellbeingSelectors();
+  if (state.social.alias) refs.teamAliasInput.value = state.social.alias;
+  if (state.social.teamCode) refs.teamCodeInput.value = state.social.teamCode;
+  if (state.report.webhookUrl) refs.reportWebhookInput.value = state.report.webhookUrl;
+  refs.reportEnableToggle.checked = Boolean(state.report.enabled);
+  if (state.meta.syncCode) {
+    loadReportConfig().catch(() => {});
+  }
+}
+
+function initTemplateSelectors() {
+  const packs = getTemplatePacks();
+  refs.marketTemplateSelect.innerHTML = packs.map((pack) => `<option value="${pack.id}">${escapeHtml(pack.name)}</option>`).join('');
+  refs.roadmapTemplateSelect.innerHTML = refs.marketTemplateSelect.innerHTML;
+
+  const selected = state.growth.roadmapTemplate || packs[0]?.id;
+  if (selected) {
+    refs.marketTemplateSelect.value = selected;
+    refs.roadmapTemplateSelect.value = selected;
+    const pack = getTemplateById(selected);
+    refs.marketTemplateDesc.textContent = pack.summary;
+  }
+
+  refs.marketTemplateSelect.addEventListener('change', () => {
+    const pack = getTemplateById(refs.marketTemplateSelect.value);
+    refs.marketTemplateDesc.textContent = pack.summary;
+    refs.roadmapTemplateSelect.value = pack.id;
+    state.growth.roadmapTemplate = pack.id;
+    saveState();
+  });
+}
+
+function initWellbeingSelectors() {
+  const options = [1, 2, 3, 4, 5]
+    .map((n) => `<option value="${n}">${n} 分</option>`)
+    .join('');
+  refs.moodBefore.innerHTML = options;
+  refs.energyBefore.innerHTML = options;
+  refs.moodAfter.innerHTML = options;
+  refs.energyAfter.innerHTML = options;
+  refs.moodBefore.value = String(state.wellbeing.moodBefore || 3);
+  refs.energyBefore.value = String(state.wellbeing.energyBefore || 3);
+  refs.moodAfter.value = String(state.wellbeing.moodAfter || 4);
+  refs.energyAfter.value = String(state.wellbeing.energyAfter || 4);
 }
 
 async function initPwa() {
@@ -242,6 +371,21 @@ function completeTask(taskId, source = 'task_list') {
     completedAt: nowIso,
   });
 
+  const currentHour = new Date().getHours();
+  state.wellbeing.logs.unshift({
+    date: nowIso,
+    taskId,
+    hour: currentHour,
+    moodBefore: Number(state.wellbeing.moodBefore || 3),
+    energyBefore: Number(state.wellbeing.energyBefore || 3),
+    moodAfter: Number(state.wellbeing.moodAfter || 4),
+    energyAfter: Number(state.wellbeing.energyAfter || 4),
+  });
+  state.wellbeing.logs = state.wellbeing.logs.slice(0, 240);
+
+  const pointGain = task.difficulty === 'hard' ? 2 : 1;
+  state.rewards.points += pointGain;
+
   if (adaptiveXp.bonusXp > 0) {
     state.growth.lastRecoveryAt = nowIso;
     trackEvent('adaptive_xp_bonus', { taskId, bonusXp: adaptiveXp.bonusXp, reasons: adaptiveXp.bonusReasons });
@@ -260,6 +404,11 @@ function completeTask(taskId, source = 'task_list') {
       completedAt: nowIso,
     });
     trackEvent('streak_bonus', { bonus: streak.bonus });
+  }
+
+  if (state.growth.roadmap?.items) {
+    const todayRoadmap = state.growth.roadmap.items.find((item) => item.date === today && item.taskId === taskId);
+    if (todayRoadmap) todayRoadmap.done = true;
   }
 
   state.taskLogs = state.taskLogs.slice(0, MAX_TASK_LOGS);
@@ -289,7 +438,12 @@ function completeTask(taskId, source = 'task_list') {
   }
   if (levelUps > 0) parts.push(`升级 +${levelUps}`);
   if (streak.bonus > 0) parts.push(`连击奖励 +${STREAK_BONUS_XP} XP`);
+  parts.push(`奖励积分 +${pointGain}`);
   showToast(parts.join(' ｜ '));
+
+  if (state.social.teamCode && state.social.memberId) {
+    syncTeamProgress().catch(() => {});
+  }
 }
 
 function saveReflection() {
@@ -313,6 +467,7 @@ function clearData() {
   if (!ok) return;
   state = createInitialState();
   ensureWeeklyChallenge(state);
+  ensureFeatureState();
   registerPageOpen();
   trackEvent('reset_data');
   saveState();
@@ -330,10 +485,18 @@ function renderAll() {
   renderTree();
   renderTasks();
   renderDailyCard();
+  renderRoadmap();
+  renderRescuePanel();
+  renderWellbeingPanel();
   renderWeeklyChallenge();
   renderWeeklyReport();
   renderGrowthVisuals();
   renderReflections();
+  renderRewards();
+  renderTeamPanel();
+  renderReportPanel();
+  renderBadgePanel();
+  renderForecastPanel();
   renderAnalytics();
 }
 
@@ -606,6 +769,150 @@ function renderDailyCard() {
   refs.focusNodeBtn.disabled = false;
   refs.dailyCardState.textContent = daily.doneToday ? '已完成' : '待完成';
   refs.dailyCardState.classList.toggle('done', daily.doneToday);
+}
+
+function ensureRoadmapState() {
+  const templateId = state.growth.roadmapTemplate || refs.roadmapTemplateSelect.value || 'procrastination-recovery';
+  if (!state.growth.roadmap || state.growth.roadmap.templateId !== templateId) {
+    state.growth.roadmap = generateRoadmap(state, templateId, 30);
+  }
+
+  const doneTaskIds = new Set(
+    state.taskLogs
+      .filter((log) => log.kind === 'task')
+      .map((log) => `${log.date}:${log.taskId}`),
+  );
+  for (const item of state.growth.roadmap.items) {
+    item.done = doneTaskIds.has(`${item.date}:${item.taskId}`);
+  }
+}
+
+function regenerateRoadmap() {
+  const templateId = refs.roadmapTemplateSelect.value || state.growth.roadmapTemplate || 'procrastination-recovery';
+  state.growth.roadmapTemplate = templateId;
+  state.growth.roadmap = generateRoadmap(state, templateId, 30);
+  trackEvent('roadmap_regenerate', { templateId });
+  saveState();
+  renderRoadmap();
+  showToast('30 天路线图已更新。');
+}
+
+function renderRoadmap() {
+  ensureRoadmapState();
+  const today = getDateKey();
+  const items = state.growth.roadmap.items.slice(0, 10);
+
+  refs.roadmapList.innerHTML = items
+    .map((item) => {
+      const cls = item.done ? 'roadmap-done' : item.date < today ? 'roadmap-pending' : '';
+      const label = item.date === today ? '（今天）' : '';
+      return `<li class="${cls}">Day ${item.day} ${escapeHtml(label)} · ${escapeHtml(item.title)} · ${
+        item.done ? '已完成' : '待完成'
+      }</li>`;
+    })
+    .join('');
+}
+
+function getRescueGapDays() {
+  const today = getDateKey();
+  const latestTask = state.taskLogs.find((log) => log.kind === 'task');
+  if (!latestTask) return 0;
+  return Math.max(0, dateDistance(latestTask.date, today) - 1);
+}
+
+function renderRescuePanel() {
+  const gap = getRescueGapDays();
+  const doneToday = state.taskLogs.some((log) => log.kind === 'task' && log.date === getDateKey());
+  const available = gap >= 1 && !doneToday;
+
+  refs.completeRescueBtn.disabled = !available;
+  refs.rescueHint.textContent = available
+    ? `你已经中断 ${gap} 天，先做保底任务快速恢复。`
+    : '当前无需保底任务，继续正常节奏即可。';
+}
+
+function completeRescueTask() {
+  if (refs.completeRescueBtn.disabled) return;
+
+  const today = getDateKey();
+  const nodeId = state.selectedNodeId || state.nodes[0]?.id;
+  if (!nodeId) return;
+
+  const rescueXp = 8;
+  applyXp(nodeId, rescueXp);
+  state.taskLogs.unshift({
+    id: makeId('log'),
+    kind: 'rescue',
+    date: today,
+    taskId: 'rescue-min-task',
+    nodeId,
+    xp: rescueXp,
+    title: '2 分钟保底任务',
+    completedAt: new Date().toISOString(),
+  });
+  state.taskLogs = state.taskLogs.slice(0, MAX_TASK_LOGS);
+  state.rewards.points += 1;
+  trackEvent('complete_rescue_task', { nodeId, rescueXp, gapDays: getRescueGapDays() });
+  saveState();
+  renderAll();
+  showToast(`保底任务完成 +${rescueXp} XP`);
+}
+
+function renderWellbeingPanel() {
+  const logs = state.wellbeing.logs.slice(0, 20);
+  if (!logs.length) {
+    refs.wellbeingHint.textContent = '记录后可看到你的状态提升趋势。';
+    return;
+  }
+
+  const avgDeltaMood =
+    logs.reduce((sum, item) => sum + (Number(item.moodAfter || 0) - Number(item.moodBefore || 0)), 0) / logs.length;
+  const avgDeltaEnergy =
+    logs.reduce((sum, item) => sum + (Number(item.energyAfter || 0) - Number(item.energyBefore || 0)), 0) / logs.length;
+  refs.wellbeingHint.textContent = `最近 ${logs.length} 次：情绪变化 ${avgDeltaMood.toFixed(2)}，精力变化 ${avgDeltaEnergy.toFixed(2)}。`;
+}
+
+function generateAiAdvice() {
+  const text = refs.reflectionInput.value.trim() || state.reflections[0]?.text || '';
+  if (!text) {
+    showToast('先输入或保存一条复盘。');
+    return;
+  }
+
+  const lower = text.toLowerCase();
+  let cause = '节奏不稳定，动作颗粒度可能偏大。';
+  let action = '明天先做一个 5 分钟最小动作，再决定是否继续。';
+
+  if (/拖延|躲着|不想/.test(text)) {
+    cause = '你在任务启动阶段阻力过高。';
+    action = '明天把任务切成 2 分钟起步动作，并设置开始倒计时。';
+  } else if (/分心|打断|消息|手机/.test(text)) {
+    cause = '外部干扰影响了专注持续时间。';
+    action = '明天开始前先关闭 2 个通知，安排 25 分钟专注块。';
+  } else if (/焦虑|害怕|担心/.test(text) || lower.includes('anxiety')) {
+    cause = '对结果压力过大，导致执行迟缓。';
+    action = '明天只承诺完成“最小可交付版本”，不要追求一步到位。';
+  } else if (/累|困|没精神/.test(text)) {
+    cause = '精力资源不足是主要约束。';
+    action = '明天先选中低强度任务，并把最重要动作放在精力高峰时段。';
+  }
+
+  refs.aiAdviceOutput.textContent = `原因判断：${cause} 明日动作：${action}`;
+  state.growth.lastAiAdviceAt = new Date().toISOString();
+  trackEvent('ai_reflection_advice', { cause, action });
+  saveState();
+}
+
+function importMarketTemplate() {
+  const templateId = refs.marketTemplateSelect.value;
+  const pack = importTemplatePack(state, templateId, makeId);
+  state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
+  state.growth.roadmapTemplate = templateId;
+  state.growth.roadmap = generateRoadmap(state, templateId, 30);
+  trackEvent('import_template_pack', { templateId: pack.id });
+  saveState();
+  renderAll();
+  showToast(`已导入模板：${pack.name}`);
 }
 
 function renderWeeklyReport() {
@@ -904,6 +1211,198 @@ function renderReflections() {
     .join('');
 }
 
+function renderRewards() {
+  refs.rewardPointsText.textContent = `奖励积分：${state.rewards.points}`;
+  if (!state.rewards.items.length) {
+    refs.rewardList.innerHTML = '<li>还没有奖励项，先添加一个让进步更有反馈。</li>';
+    return;
+  }
+
+  refs.rewardList.innerHTML = state.rewards.items
+    .map((item) => {
+      const canRedeem = state.rewards.points >= item.cost;
+      return `<li>
+        <div class="team-row">
+          <span>${escapeHtml(item.name)}（${item.cost} 分）｜已兑换 ${item.redeemedCount || 0} 次</span>
+          <button class="${canRedeem ? 'btn-sub' : 'btn-plain'}" data-action="redeem-reward" data-id="${item.id}" ${
+        canRedeem ? '' : 'disabled'
+      }>兑换</button>
+        </div>
+      </li>`;
+    })
+    .join('');
+
+  refs.rewardList.querySelectorAll('[data-action="redeem-reward"]').forEach((btn) => {
+    btn.addEventListener('click', () => redeemReward(btn.dataset.id));
+  });
+}
+
+function addRewardItem() {
+  const name = refs.rewardNameInput.value.trim();
+  const cost = Math.max(1, Number(refs.rewardCostInput.value || 1));
+  if (!name) {
+    showToast('请输入奖励名称。');
+    return;
+  }
+
+  state.rewards.items.push({
+    id: makeId('reward'),
+    name: name.slice(0, 40),
+    cost,
+    redeemedCount: 0,
+  });
+  refs.rewardNameInput.value = '';
+  trackEvent('add_reward_item', { cost });
+  saveState();
+  renderRewards();
+  showToast('奖励项已添加。');
+}
+
+function redeemReward(rewardId) {
+  const reward = state.rewards.items.find((item) => item.id === rewardId);
+  if (!reward) return;
+  if (state.rewards.points < reward.cost) {
+    showToast('积分不足，先完成任务赚积分。');
+    return;
+  }
+
+  state.rewards.points -= reward.cost;
+  reward.redeemedCount = (reward.redeemedCount || 0) + 1;
+  state.rewards.history.unshift({
+    id: makeId('reward-history'),
+    rewardId,
+    name: reward.name,
+    action: 'redeem',
+    date: new Date().toISOString(),
+    cost: reward.cost,
+  });
+  state.rewards.history = state.rewards.history.slice(0, 120);
+  trackEvent('redeem_reward', { rewardId, cost: reward.cost });
+  saveState();
+  renderRewards();
+  showToast(`已兑换：${reward.name}`);
+}
+
+function renderTeamPanel() {
+  const hasTeam = Boolean(state.social.teamCode);
+  if (!hasTeam) {
+    refs.teamMembersList.innerHTML = '<li>未加入队伍，创建或加入后可共享进度。</li>';
+    refs.teamCheersList.innerHTML = '<li>队友打气消息会显示在这里。</li>';
+    return;
+  }
+
+  const teamCode = state.social.teamCode;
+  const members = state.social.members || [];
+  refs.teamCodeInput.value = teamCode;
+  refs.teamAliasInput.value = state.social.alias || '';
+
+  if (!members.length) {
+    refs.teamMembersList.innerHTML = '<li>正在同步队伍信息...</li>';
+  } else {
+    refs.teamMembersList.innerHTML = members
+      .map((member) => {
+        const progress = state.social.progress[member.memberId] || {};
+        const mine = member.memberId === state.social.memberId ? '（我）' : '';
+        return `<li>
+          <div class="team-row">
+            <strong>${escapeHtml(member.alias)}${mine}</strong>
+            <span>${progress.weekXp || 0} XP ｜ 连续 ${progress.streak || 0} 天 ｜ 挑战 ${escapeHtml(
+          progress.challengeProgress || '0/0',
+        )}</span>
+          </div>
+        </li>`;
+      })
+      .join('');
+  }
+
+  const cheers = state.social.cheers || [];
+  refs.teamCheersList.innerHTML = cheers.length
+    ? cheers
+        .slice(0, 8)
+        .map(
+          (item) =>
+            `<li><strong>${escapeHtml(item.fromAlias || '队友')}</strong>：${escapeHtml(item.message)}<br/><span>${escapeHtml(
+              item.createdAt || '',
+            )}</span></li>`,
+        )
+        .join('')
+    : '<li>还没有打气消息，先发一句鼓励吧。</li>';
+}
+
+function renderReportPanel() {
+  refs.reportWebhookInput.value = state.report.webhookUrl || '';
+  refs.reportEnableToggle.checked = Boolean(state.report.enabled);
+  refs.reportStatusText.textContent = state.report.lastStatus || '尚未配置自动发送。';
+}
+
+function computeBadges() {
+  const now = getDateKey();
+  const completedTasks = state.taskLogs.filter((log) => log.kind === 'task').length;
+  const recovery = getRecoveryMetrics(state.taskLogs);
+  const weekSummary = getWeeklySummary(state, now);
+  const challenge = computeWeeklyChallengeProgress(state, now);
+  const shareCount = state.analytics.events.filter((item) => item.type === 'publish_share_link').length;
+
+  return [
+    { key: 'starter', name: '起步徽章', desc: '完成首个任务', earned: completedTasks >= 1 },
+    { key: 'stability', name: '稳定输出', desc: '连续进步 7 天', earned: state.streak >= 7 },
+    { key: 'recovery', name: '恢复大师', desc: '中断后恢复 3 次', earned: recovery.gapCount >= 3 },
+    { key: 'challenger', name: '挑战征服者', desc: '领取周挑战奖励', earned: Boolean(challenge.claimed) },
+    { key: 'shipper', name: '周报发布者', desc: '生成过分享链接', earned: shareCount >= 1 },
+    { key: 'sprinter', name: '冲刺达人', desc: '本周完成任务 12 次', earned: weekSummary.finishedCount >= 12 },
+  ];
+}
+
+function renderBadgePanel() {
+  const badges = computeBadges();
+  refs.badgeList.innerHTML = badges
+    .map(
+      (badge) =>
+        `<li class="${badge.earned ? 'badge-earned' : 'badge-locked'}"><strong>${badge.earned ? '已解锁' : '未解锁'}</strong> · ${escapeHtml(
+          badge.name,
+        )}：${escapeHtml(badge.desc)}</li>`,
+    )
+    .join('');
+}
+
+function computeForecast() {
+  const today = getDateKey();
+  const days = [];
+  for (let i = 13; i >= 0; i -= 1) days.push(addDays(today, -i));
+  const byDay = {};
+  for (const day of days) byDay[day] = 0;
+  for (const log of state.taskLogs) {
+    if (log.kind !== 'task') continue;
+    if (Object.prototype.hasOwnProperty.call(byDay, log.date)) byDay[log.date] += 1;
+  }
+
+  const values = days.map((day) => byDay[day] || 0);
+  const firstHalf = values.slice(0, 7).reduce((a, b) => a + b, 0);
+  const secondHalf = values.slice(7).reduce((a, b) => a + b, 0);
+  const trendUp = secondHalf >= firstHalf;
+  const avgDaily = values.reduce((a, b) => a + b, 0) / values.length;
+  const recentZeros = values.slice(-4).filter((v) => v === 0).length;
+  const risk = recentZeros >= 2 || avgDaily < 0.8 ? '高' : avgDaily < 1.3 ? '中' : '低';
+
+  return {
+    trendUp,
+    avgDaily: Number(avgDaily.toFixed(2)),
+    nextWeekEstimate: Math.max(1, Math.round(avgDaily * 7)),
+    risk,
+  };
+}
+
+function renderForecastPanel() {
+  const forecast = computeForecast();
+  const lines = [
+    `近 14 天日均完成：<strong>${forecast.avgDaily}</strong> 次`,
+    `下周预计完成：<strong>${forecast.nextWeekEstimate}</strong> 次`,
+    `趋势方向：<strong>${forecast.trendUp ? '上升' : '下降'}</strong>`,
+    `掉线风险：<strong>${forecast.risk}</strong>（建议提前做保底任务）`,
+  ];
+  refs.forecastList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
+}
+
 function renderNodeSelectors() {
   const layout = computeNodeLayout(state.nodes);
   const nodes = [...state.nodes].sort((a, b) => {
@@ -1024,6 +1523,7 @@ async function importData() {
     const parsed = JSON.parse(text);
     state = mergeState(parsed.state || parsed);
     ensureWeeklyChallenge(state);
+    ensureFeatureState();
     state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
     ensureSelectedNode(state);
     trackEvent('import_data', { version: parsed.version || null });
@@ -1078,6 +1578,7 @@ async function downloadCloudBackup() {
 
     state = mergeState(data.payload.state || data.payload);
     ensureWeeklyChallenge(state);
+    ensureFeatureState();
     state.meta.syncCode = syncCode;
     state.nodeProgress = syncUnlockState(state.nodes, state.nodeProgress);
     ensureSelectedNode(state);
@@ -1087,6 +1588,179 @@ async function downloadCloudBackup() {
     showToast('已从云端恢复数据。');
   } catch (error) {
     showToast(`云端恢复失败：${error.message}`);
+  }
+}
+
+async function createTeam() {
+  const alias = (refs.teamAliasInput.value || '').trim().slice(0, 18) || '我';
+  try {
+    const result = await apiClient.createTeam(alias);
+    state.social.teamCode = result.teamCode;
+    state.social.memberId = result.memberId;
+    state.social.alias = alias;
+    state.social.members = result.team?.members || [];
+    state.social.progress = result.team?.progress || {};
+    state.social.cheers = result.team?.cheers || [];
+    refs.teamCodeInput.value = result.teamCode;
+    trackEvent('team_create', { teamCode: result.teamCode });
+    saveState();
+    renderTeamPanel();
+    showToast(`队伍已创建：${result.teamCode}`);
+  } catch (error) {
+    showToast(`创建队伍失败：${error.message}`);
+  }
+}
+
+async function joinTeam() {
+  const teamCode = (refs.teamCodeInput.value || '').trim().toUpperCase();
+  const alias = (refs.teamAliasInput.value || '').trim().slice(0, 18) || '新伙伴';
+  if (!teamCode) {
+    showToast('请先输入队伍邀请码。');
+    return;
+  }
+
+  try {
+    const result = await apiClient.joinTeam(teamCode, alias);
+    state.social.teamCode = result.teamCode;
+    state.social.memberId = result.memberId;
+    state.social.alias = alias;
+    state.social.members = result.team?.members || [];
+    state.social.progress = result.team?.progress || {};
+    state.social.cheers = result.team?.cheers || [];
+    trackEvent('team_join', { teamCode: result.teamCode });
+    saveState();
+    renderTeamPanel();
+    showToast(`已加入队伍：${result.teamCode}`);
+  } catch (error) {
+    showToast(`加入队伍失败：${error.message}`);
+  }
+}
+
+async function syncTeamProgress() {
+  const teamCode = state.social.teamCode || (refs.teamCodeInput.value || '').trim().toUpperCase();
+  const memberId = state.social.memberId;
+  if (!teamCode || !memberId) {
+    showToast('请先创建或加入队伍。');
+    return;
+  }
+
+  const summary = getWeeklySummary(state);
+  const challenge = computeWeeklyChallengeProgress(state);
+  try {
+    const updated = await apiClient.updateTeamProgress({
+      teamCode,
+      memberId,
+      alias: (refs.teamAliasInput.value || state.social.alias || '').trim().slice(0, 18),
+      weekXp: summary.weekXp,
+      streak: state.streak,
+      challengeProgress: `${challenge.progress}/${challenge.target}`,
+    });
+
+    state.social.teamCode = teamCode;
+    state.social.alias = (refs.teamAliasInput.value || state.social.alias || '').trim().slice(0, 18);
+    state.social.members = updated.team?.members || [];
+    state.social.progress = updated.team?.progress || {};
+    state.social.cheers = updated.team?.cheers || [];
+    state.social.updatedAt = updated.team?.updatedAt || new Date().toISOString();
+    trackEvent('team_sync', { teamCode });
+    saveState();
+    renderTeamPanel();
+    showToast('队伍进度已同步。');
+  } catch (error) {
+    showToast(`同步队伍失败：${error.message}`);
+  }
+}
+
+async function sendTeamCheer() {
+  const teamCode = state.social.teamCode;
+  const memberId = state.social.memberId;
+  const message = refs.teamCheerInput.value.trim();
+  if (!teamCode || !memberId) {
+    showToast('请先创建或加入队伍。');
+    return;
+  }
+  if (!message) {
+    showToast('请输入打气内容。');
+    return;
+  }
+
+  try {
+    const result = await apiClient.sendTeamCheer({
+      teamCode,
+      fromMemberId: memberId,
+      message,
+    });
+    refs.teamCheerInput.value = '';
+    state.social.members = result.team?.members || [];
+    state.social.progress = result.team?.progress || {};
+    state.social.cheers = result.team?.cheers || [];
+    trackEvent('team_cheer_send', { teamCode });
+    saveState();
+    renderTeamPanel();
+    showToast('打气已发送。');
+  } catch (error) {
+    showToast(`发送打气失败：${error.message}`);
+  }
+}
+
+async function loadReportConfig() {
+  const syncCode = refs.syncCodeInput.value.trim() || state.meta.syncCode;
+  if (!syncCode) return;
+  try {
+    const result = await apiClient.getReportConfig(syncCode);
+    if (result?.report) {
+      state.report = {
+        ...state.report,
+        ...result.report,
+      };
+      saveState();
+      renderReportPanel();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function saveReportConfig() {
+  const syncCode = refs.syncCodeInput.value.trim() || state.meta.syncCode;
+  if (!syncCode) {
+    showToast('先填写同步口令，再保存周报配置。');
+    return;
+  }
+
+  const webhookUrl = refs.reportWebhookInput.value.trim();
+  const enabled = refs.reportEnableToggle.checked;
+  try {
+    const result = await apiClient.saveReportConfig(syncCode, webhookUrl, enabled);
+    state.report = {
+      ...state.report,
+      ...(result.report || {}),
+    };
+    trackEvent('report_config_save', { enabled });
+    saveState();
+    renderReportPanel();
+    showToast('周报自动发送配置已保存。');
+  } catch (error) {
+    showToast(`保存失败：${error.message}`);
+  }
+}
+
+async function testReportSend() {
+  const syncCode = refs.syncCodeInput.value.trim() || state.meta.syncCode;
+  if (!syncCode) {
+    showToast('先填写同步口令，再发送测试。');
+    return;
+  }
+
+  try {
+    const result = await apiClient.testReport(syncCode, buildShareSnapshot());
+    state.report.lastStatus = result.ok ? `测试成功：${result.status}` : `测试失败：${result.status}`;
+    trackEvent('report_test_send', { ok: Boolean(result.ok) });
+    saveState();
+    renderReportPanel();
+    showToast('测试周报已发送。');
+  } catch (error) {
+    showToast(`测试发送失败：${error.message}`);
   }
 }
 

@@ -55,7 +55,7 @@ export function createInitialState() {
   }
 
   return {
-    version: 5,
+    version: 6,
     selectedNodeId: nodes[0].id,
     totalXp: 0,
     streak: 0,
@@ -68,6 +68,36 @@ export function createInitialState() {
     growth: {
       weeklyChallenge: null,
       lastRecoveryAt: '',
+      roadmap: null,
+      roadmapTemplate: 'procrastination-recovery',
+    },
+    social: {
+      teamCode: '',
+      memberId: '',
+      alias: '',
+      members: [],
+      progress: {},
+      cheers: [],
+      updatedAt: '',
+    },
+    rewards: {
+      points: 0,
+      items: [],
+      history: [],
+    },
+    wellbeing: {
+      moodBefore: 3,
+      energyBefore: 3,
+      moodAfter: 4,
+      energyAfter: 4,
+      logs: [],
+    },
+    report: {
+      enabled: false,
+      webhookUrl: '',
+      lastStatus: '',
+      lastSentWeekKey: '',
+      updatedAt: '',
     },
     meta: {
       firstVisitDate: '',
@@ -165,6 +195,24 @@ export function mergeState(source) {
     base.growth = {
       ...base.growth,
       lastRecoveryAt: typeof source.growth.lastRecoveryAt === 'string' ? source.growth.lastRecoveryAt : '',
+      roadmapTemplate:
+        typeof source.growth.roadmapTemplate === 'string' ? source.growth.roadmapTemplate : base.growth.roadmapTemplate,
+      roadmap:
+        source.growth.roadmap && typeof source.growth.roadmap === 'object'
+          ? {
+              templateId:
+                typeof source.growth.roadmap.templateId === 'string'
+                  ? source.growth.roadmap.templateId
+                  : base.growth.roadmapTemplate,
+              generatedAt: typeof source.growth.roadmap.generatedAt === 'string' ? source.growth.roadmap.generatedAt : '',
+              days: clampInt(source.growth.roadmap.days, 1, 120),
+              items: Array.isArray(source.growth.roadmap.items)
+                ? source.growth.roadmap.items
+                    .filter((item) => item && typeof item.date === 'string' && typeof item.title === 'string')
+                    .slice(0, 120)
+                : [],
+            }
+          : null,
       weeklyChallenge:
         source.growth.weeklyChallenge && typeof source.growth.weeklyChallenge === 'object'
           ? {
@@ -175,6 +223,110 @@ export function mergeState(source) {
               claimed: Boolean(source.growth.weeklyChallenge.claimed),
             }
           : null,
+    };
+  }
+
+  if (source.social && typeof source.social === 'object') {
+    base.social = {
+      ...base.social,
+      teamCode: typeof source.social.teamCode === 'string' ? source.social.teamCode.slice(0, 24) : '',
+      memberId: typeof source.social.memberId === 'string' ? source.social.memberId.slice(0, 32) : '',
+      alias: typeof source.social.alias === 'string' ? source.social.alias.slice(0, 18) : '',
+      updatedAt: typeof source.social.updatedAt === 'string' ? source.social.updatedAt : '',
+      members: Array.isArray(source.social.members)
+        ? source.social.members
+            .filter((item) => item && typeof item.memberId === 'string')
+            .slice(0, 12)
+            .map((item) => ({
+              memberId: String(item.memberId).slice(0, 32),
+              alias: String(item.alias || '成员').slice(0, 18),
+              joinedAt: typeof item.joinedAt === 'string' ? item.joinedAt : '',
+            }))
+        : [],
+      progress:
+        source.social.progress && typeof source.social.progress === 'object'
+          ? Object.fromEntries(
+              Object.entries(source.social.progress)
+                .slice(0, 20)
+                .map(([memberId, item]) => [
+                  String(memberId).slice(0, 32),
+                  {
+                    weekXp: clampInt(item?.weekXp, 0, 9999),
+                    streak: clampInt(item?.streak, 0, 999),
+                    challengeProgress: String(item?.challengeProgress || '').slice(0, 20),
+                    updatedAt: typeof item?.updatedAt === 'string' ? item.updatedAt : '',
+                  },
+                ]),
+            )
+          : {},
+      cheers: Array.isArray(source.social.cheers)
+        ? source.social.cheers
+            .filter((item) => item && typeof item.message === 'string')
+            .slice(0, 40)
+            .map((item) => ({
+              id: String(item.id || ''),
+              fromMemberId: String(item.fromMemberId || ''),
+              fromAlias: String(item.fromAlias || '').slice(0, 18),
+              toMemberId: item.toMemberId ? String(item.toMemberId).slice(0, 32) : '',
+              message: String(item.message).slice(0, 60),
+              createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+            }))
+        : [],
+    };
+  }
+
+  if (source.rewards && typeof source.rewards === 'object') {
+    base.rewards = {
+      points: clampInt(source.rewards.points, 0, 9999),
+      items: Array.isArray(source.rewards.items)
+        ? source.rewards.items
+            .filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string')
+            .slice(0, 60)
+            .map((item) => ({
+              id: String(item.id).slice(0, 48),
+              name: String(item.name).slice(0, 40),
+              cost: clampInt(item.cost, 1, 999),
+              redeemedCount: clampInt(item.redeemedCount, 0, 999),
+            }))
+        : [],
+      history: Array.isArray(source.rewards.history)
+        ? source.rewards.history
+            .filter((item) => item && typeof item.date === 'string' && typeof item.action === 'string')
+            .slice(0, 120)
+        : [],
+    };
+  }
+
+  if (source.wellbeing && typeof source.wellbeing === 'object') {
+    base.wellbeing = {
+      moodBefore: clampInt(source.wellbeing.moodBefore, 1, 5),
+      energyBefore: clampInt(source.wellbeing.energyBefore, 1, 5),
+      moodAfter: clampInt(source.wellbeing.moodAfter, 1, 5),
+      energyAfter: clampInt(source.wellbeing.energyAfter, 1, 5),
+      logs: Array.isArray(source.wellbeing.logs)
+        ? source.wellbeing.logs
+            .filter((item) => item && typeof item.date === 'string')
+            .slice(0, 240)
+            .map((item) => ({
+              date: item.date,
+              moodBefore: clampInt(item.moodBefore, 1, 5),
+              energyBefore: clampInt(item.energyBefore, 1, 5),
+              moodAfter: clampInt(item.moodAfter, 1, 5),
+              energyAfter: clampInt(item.energyAfter, 1, 5),
+              taskId: String(item.taskId || ''),
+              hour: clampInt(item.hour, 0, 23),
+            }))
+        : [],
+    };
+  }
+
+  if (source.report && typeof source.report === 'object') {
+    base.report = {
+      enabled: Boolean(source.report.enabled),
+      webhookUrl: typeof source.report.webhookUrl === 'string' ? source.report.webhookUrl.slice(0, 200) : '',
+      lastStatus: typeof source.report.lastStatus === 'string' ? source.report.lastStatus.slice(0, 120) : '',
+      lastSentWeekKey: typeof source.report.lastSentWeekKey === 'string' ? source.report.lastSentWeekKey : '',
+      updatedAt: typeof source.report.updatedAt === 'string' ? source.report.updatedAt : '',
     };
   }
 
