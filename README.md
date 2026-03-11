@@ -83,3 +83,10 @@ npm test
 - `scripts/modules/*.js`：前端模块
 - `scripts/cron-reminder-trigger.js`：Cron 触发脚本
 - `tests/*.test.js`：单测
+
+## GitHub Positioning
+
+- Suggested description: `Growth-tree web app for daily tasks, sharing, sync, reminders, and progress tracking.`
+- Suggested topics: `habit-tracker`, `growth-system`, `nodejs`, `productivity`, `pwa`, `web-push`
+- Metadata notes: see [`docs/repo-metadata.md`](docs/repo-metadata.md)
+
